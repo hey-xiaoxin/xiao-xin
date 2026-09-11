@@ -1,0 +1,20 @@
+# Sensitive data - NEVER commit
+data.json
+node_modules/
+
+# Local helper scripts (may contain secrets / machine-specific paths) - NEVER commit
+build-data.cmd
+sync.bat
+push-first.cmd
+*.cmd
+*.bat
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
