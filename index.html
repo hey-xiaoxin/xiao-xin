@@ -11620,8 +11620,8 @@ function qcUploadFile(file) {
                 QC_DATA.savedAt = new Date().toISOString();
                 if (nameEl) nameEl.textContent = '已导入：' + file.name + '（' + QC_DATA.rows.length + ' 条）';
                 QCStorage.save();
-                // 新导入后把筛选复位，并默认切到最新月份（多个月份的数据不再混在一起展示）
-                QC_FILTER = { date: qcLatestMonthKey(), who: '__all', item: '__all', content: '__all', kw: '' };
+                // 新导入后把筛选复位，并默认切到最新日期（多天/多月的数据不再混在一起展示）
+                QC_FILTER = { date: qcLatestDateKey(), who: '__all', item: '__all', content: '__all', kw: '' };
                 qcRenderAll();
                 showNotification('质检数据已加载：' + QC_DATA.rows.length + ' 条');
             } catch (err) {
@@ -11701,7 +11701,7 @@ function qcRenderAll() {
 function qcRenderStats() {
     var statsEl = document.getElementById('qcStats');
     if (!statsEl) return;
-    // 统计跟随当前筛选（默认「最新月份」），与列表 / 排名口径保持一致
+    // 统计跟随当前筛选（默认「最新日期」），与列表 / 排名口径保持一致
     var rows = (QC_DATA.rows || []).length ? qcGetFiltered() : [];
     var total = rows.length;
     var deductSum = rows.reduce(function (s, r) { return s + (r.deduct || 0); }, 0);
@@ -11922,24 +11922,20 @@ function qcApplyFilter() {
     qcRenderRanks();
 }
 
-// 质检：「最新月份」筛选键（'m:YYYY-MM'；无年份的日期为 'm:MM'；全无日期则 '__all'）
-// 导入多个月份的数据后，默认只展示最新月份，而不是把所有月份混在一起
-function qcLatestMonthKey() {
+// 质检：「最新日期」筛选键（如 '2026-09-12'；无年份的日期为 '09-12'；全无日期则 '__all'）
+// 导入多日期的数据后，默认只展示「最新那一天」，而不是整月或全部混在一起
+function qcLatestDateKey() {
     var rows = QC_DATA.rows || [];
     // 带年份的（2026-09-03）与只有月日的（09-03）分开比，
-    // 避免两种格式混在一起时按字符串比大小把月份比错
+    // 避免两种格式混在一起时按字符串比大小把日期比错
     var bestY = '', bestM = '';
     rows.forEach(function (r) {
         var d = (r && r.date) ? String(r.date) : '';
-        var key = '';
-        var m = /^(\d{4})-(\d{2})-\d{2}/.exec(d);
-        var isY = !!m;
-        if (m) key = m[1] + '-' + m[2];
-        else { var md = /^(\d{2})-\d{2}$/.exec(d); if (md) key = md[1]; }
-        if (key) { if (isY) { if (key > bestY) bestY = key; } else { if (key > bestM) bestM = key; } }
+        if (/^\d{4}-\d{2}-\d{2}/.test(d)) { if (d > bestY) bestY = d; }
+        else if (/^\d{2}-\d{2}$/.test(d)) { if (d > bestM) bestM = d; }
     });
-    if (bestY) return 'm:' + bestY;
-    if (bestM) return 'm:' + bestM;
+    if (bestY) return bestY;
+    if (bestM) return bestM;
     return '__all';
 }
 
@@ -11952,9 +11948,9 @@ function qcRefreshDateLabel() {
     lab.textContent = qcDateLabelText(QC_FILTER.date, n);
 }
 
-// 重置筛选：回到默认视角（最新月份），而不是「全部日期」
+// 重置筛选：回到默认视角（最新日期），而不是「全部日期」
 function qcResetFilter() {
-    QC_FILTER = { date: qcLatestMonthKey(), who: '__all', item: '__all', content: '__all', kw: '' };
+    QC_FILTER = { date: qcLatestDateKey(), who: '__all', item: '__all', content: '__all', kw: '' };
     qcRenderAll();   // qcRenderAll 内部会重建筛选面板并刷新日期按钮文案
 }
 
@@ -12050,7 +12046,7 @@ function qcToggleDetail(id, btn) {
 function qcRenderRanks() {
     var box = document.getElementById('qcRanks');
     if (!box) return;
-    // 排名跟随当前筛选（默认「最新月份」），与列表 / 统计口径保持一致
+    // 排名跟随当前筛选（默认「最新日期」），与列表 / 统计口径保持一致
     var rows = qcGetFiltered();
     if (!rows.length) {
         var hasAny = (QC_DATA.rows || []).length > 0;
@@ -12181,8 +12177,8 @@ function qcBindUpload() {
             var tag = stored.imagesDropped ? '（图片未保存）' : '';
             nameEl.textContent = '已恢复：' + (stored.fileName || '本地数据') + '（' + stored.rows.length + ' 条）' + tag;
         }
-        // 打开页面默认展示最新月份（数据跨多个月时不再一屏混着看）
-        QC_FILTER.date = qcLatestMonthKey();
+        // 打开页面默认展示最新日期（数据跨多天/多月时不再一屏混着看）
+        QC_FILTER.date = qcLatestDateKey();
         qcRenderAll();
     }
 }
