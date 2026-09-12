@@ -1411,6 +1411,8 @@ header { position: relative; }
 .down { color: #2e7d32; }
 .flat { color: var(--text-light); }
 .result-box.warn { background: linear-gradient(135deg, #fff8e1, #fff3cd); border-color: #ffe082; }
+/* 每小袋大卡（约值）：客服高频追问的数字，做视觉强调 */
+.result-box.hl { background: linear-gradient(135deg, #e8f5e9, #d7efd9); border: 2px solid var(--primary); }
 .result-box.danger { background: linear-gradient(135deg, #ffebee, #fdecea); border-color: #ef9a9a; }
 .result-box.ok { background: linear-gradient(135deg, #f1f8e9, #e8f5e9); border-color: var(--primary-light); }
 .calc-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -3852,7 +3854,8 @@ header::after {
                 <div class="calc-panel" id="calc-kcal" data-page-node-id="6gsf3cUErJIjCLQIl7p39d">
                     <div class="calc-desc" data-page-node-id="H5lXR0CJCBi2tGk0OLjOwB">
                         按 <strong data-page-node-id="ojKChiUpfAwgVWW9WhWaWx">净含量（克）</strong> 与 <strong data-page-node-id="1Ors0tmwxhPzLupglUr8d0">每100克能量</strong> 计算该份产品的大卡：千焦 ÷ 4.184 = 大卡。<br data-page-node-id="KaaliLlxFtgZOGsh5S2ABk">
-                        可直接从产品库带入能量数据，也可手动添加多行（组合装可累加）。
+                        可直接从产品库带入能量数据，也可手动添加多行（组合装可累加）。<br data-page-node-id="KcalBagsBr">
+                        填写<strong data-page-node-id="KcalBagsStrong">小袋数量(约值)</strong>后，自动按「合计大卡 ÷ 小袋数量」算出<strong data-page-node-id="KcalBagsStrong2">每小袋大卡</strong>（约值）；留空则不计算。
                     </div>
                     <div class="calc-toolbar" data-page-node-id="t6RQGJHZCyrnp77XSNEMZ2">
                         <input type="text" id="kcal-prod-search" placeholder="🔍 搜索产品名称…" oninput="kcalFillProducts()" style="min-width:170px">
@@ -3864,12 +3867,13 @@ header::after {
                     <table class="calc-table" id="kcal-table" data-page-node-id="JK61fugep3EKKsetISmLBd">
                         <thead data-page-node-id="rFZZUCU0cUCWhVHFg0GzTB">
                             <tr data-page-node-id="q8JmecACj0WlcVhakVWlMR">
-                                <th style="width:26%" data-page-node-id="lFezvjIC6jvzTDbjZD2aya">产品名称</th>
-                                <th style="width:14%" data-page-node-id="eDlFWd9a7IWJODi0YxyXAE">净含量(g)</th>
-                                <th style="width:16%" data-page-node-id="qTvVblOpzLM8vA3cwdgIq7">每100g能量</th>
-                                <th style="width:14%" data-page-node-id="gi1zmkZt0nLPgbDhlcJIV7">单位</th>
+                                <th style="width:20%" data-page-node-id="lFezvjIC6jvzTDbjZD2aya">产品名称</th>
+                                <th style="width:11%" data-page-node-id="eDlFWd9a7IWJODi0YxyXAE">净含量(g)</th>
+                                <th style="width:14%" data-page-node-id="kcalBagsTh">小袋数量(约值)</th>
+                                <th style="width:13%" data-page-node-id="qTvVblOpzLM8vA3cwdgIq7">每100g能量</th>
+                                <th style="width:11%" data-page-node-id="gi1zmkZt0nLPgbDhlcJIV7">单位</th>
                                 <th style="width:18%" data-page-node-id="eabpdwu1B5ldFx2IU8U8r7">大卡(kcal)</th>
-                                <th style="width:12%" data-page-node-id="C6L3mPPjOtjYMf9vydHSJW"></th>
+                                <th style="width:13%" data-page-node-id="C6L3mPPjOtjYMf9vydHSJW"></th>
                             </tr>
                         </thead>
                         <tbody id="kcal-rows" data-page-node-id="iAzNhYudgpK4MCngdKhvxO"></tbody>
@@ -7642,7 +7646,7 @@ function calcSwitch(type) {
     if (type === 'kcal') { kcalFillProducts(); kcalRender(); }
 }
 function calcInit() {
-    KCAL_ROWS = [{ name: '', grams: '', energy: '', unit: 'kj' }];
+    KCAL_ROWS = [{ name: '', grams: '', energy: '', unit: 'kj', bags: '' }];
     exprInit();
     kcalFillProducts();
     kcalRender();
@@ -8021,6 +8025,7 @@ function kcalRender() {
         return '<tr>' +
             '<td><input type="text" value="' + escAttr(r.name) + '" placeholder="产品名称" oninput="kcalSet(' + i + ',\'name\',this.value)"></td>' +
             '<td><input type="number" min="0" value="' + escAttr(r.grams) + '" placeholder="0" oninput="kcalSet(' + i + ',\'grams\',this.value)"></td>' +
+            '<td><input type="number" min="1" step="1" value="' + escAttr(r.bags) + '" placeholder="如 5（可留空）" oninput="kcalSet(' + i + ',\'bags\',this.value)"></td>' +
             '<td><input type="number" min="0" value="' + escAttr(r.energy) + '" placeholder="能量值" oninput="kcalSet(' + i + ',\'energy\',this.value)"></td>' +
             '<td><select onchange="kcalSet(' + i + ',\'unit\',this.value)">' +
             '<option value="kj"' + (r.unit === 'kj' ? ' selected' : '') + '>千焦(kJ)</option>' +
@@ -8037,12 +8042,17 @@ function kcalSet(i, field, val) {
     kcalRecalc();
 }
 function kcalRecalc() {
-    var totalG = 0, totalKcal = 0, valid = 0;
+    var totalG = 0, totalKcal = 0, totalBags = 0, valid = 0;
     var cells = document.querySelectorAll('#kcal-rows .cell-kcal');
     KCAL_ROWS.forEach(function (r, i) {
         var k = rowKcal(r);
         if (cells[i]) cells[i].textContent = (k === null ? '—' : fmtNum(k, 1));
-        if (k !== null) { totalKcal += k; totalG += parseFloat(r.grams); valid++; }
+        if (k !== null) {
+            totalKcal += k; totalG += parseFloat(r.grams); valid++;
+            // 小袋数量留空 → 不计入，也就不会算「每小袋大卡」（只按整数计）
+            var b = parseInt(r.bags, 10);
+            if (!isNaN(b) && b > 0) totalBags += b;
+        }
     });
     var box = document.getElementById('kcal-result');
     if (!box) return;
@@ -8050,27 +8060,32 @@ function kcalRecalc() {
         box.innerHTML = calcEmpty('fire', '请填写净含量（克）与每100g能量');
         return;
     }
-    function b(label, main, sub) {
-        return '<div class="result-box"><div class="rb-label">' + label + '</div><div class="rb-main">' + main + '</div><div class="rb-sub">' + sub + '</div></div>';
+    function b(label, main, sub, cls) {
+        return '<div class="result-box' + (cls ? ' ' + cls : '') + '"><div class="rb-label">' + label + '</div><div class="rb-main">' + main + '</div><div class="rb-sub">' + sub + '</div></div>';
     }
+    // 填了小袋数量才算「每小袋大卡 = 合计大卡 ÷ 小袋数量」，留空则不显示
+    var perBagHtml = totalBags > 0
+        ? b('每小袋大卡（约值）', fmtNum(totalKcal / totalBags, 1) + '<span style="font-size:.55em;font-weight:600"> kcal</span>', '按合计 ' + totalBags + ' 小袋折算', 'hl')
+        : '';
     box.innerHTML = '<div class="result-grid g4">' +
         b('合计大卡', fmtNum(totalKcal, 1), 'kcal ／ ' + valid + ' 项有效') +
         b('合计能量', fmtNum(totalKcal * 4.184, 1), 'kJ（千焦）') +
         b('合计净含量', fmtNum(totalG, 0), 'g（克）') +
         b('每日参考占比', fmtNum(totalKcal / 2000 * 100, 1), '%（按 2000 kcal / 日）') +
+        perBagHtml +
         '</div>';
 }
 function kcalAddRow() {
-    KCAL_ROWS.push({ name: '', grams: '', energy: '', unit: 'kj' });
+    KCAL_ROWS.push({ name: '', grams: '', energy: '', unit: 'kj', bags: '' });
     kcalRender();
 }
 function kcalDelRow(i) {
     KCAL_ROWS.splice(i, 1);
-    if (!KCAL_ROWS.length) KCAL_ROWS.push({ name: '', grams: '', energy: '', unit: 'kj' });
+    if (!KCAL_ROWS.length) KCAL_ROWS.push({ name: '', grams: '', energy: '', unit: 'kj', bags: '' });
     kcalRender();
 }
 function kcalClear() {
-    KCAL_ROWS = [{ name: '', grams: '', energy: '', unit: 'kj' }];
+    KCAL_ROWS = [{ name: '', grams: '', energy: '', unit: 'kj', bags: '' }];
     kcalRender();
 }
 function kcalAddFromProduct() {
@@ -8087,22 +8102,30 @@ function kcalAddFromProduct() {
     var e = parseFloat(raw.replace(/[^0-9.]/g, ''));
     if (isNaN(e)) { showNotification('该产品能量数据无法解析', 'error'); return; }
     var unit = /千卡|大卡|kcal/i.test(raw) ? 'kcal' : 'kj';
-    KCAL_ROWS.push({ name: p.name, grams: '', energy: String(e), unit: unit });
+    KCAL_ROWS.push({ name: p.name, grams: '', energy: String(e), unit: unit, bags: '' });
     kcalRender();
     showNotification('已带入「' + p.name + '」的能量值，请填写净含量');
 }
 function kcalSummary() {
     var lines = ['【产品大卡计算】'];
-    var totalG = 0, totalKcal = 0, valid = 0;
+    var totalG = 0, totalKcal = 0, totalBags = 0, valid = 0;
     KCAL_ROWS.forEach(function (r) {
         var k = rowKcal(r);
         if (k === null) return;
         valid++; totalKcal += k; totalG += parseFloat(r.grams);
+        // 小袋数量留空 → 不计入，复制结果里也不出现（只按整数计）
+        var b = parseInt(r.bags, 10);
+        var bagsOk = (!isNaN(b) && b > 0);
+        if (bagsOk) totalBags += b;
         lines.push((r.name || '未命名') + '：' + fmtNum(r.grams, 0) + 'g × ' + fmtNum(parseFloat(r.energy), 0) +
-            (r.unit === 'kcal' ? 'kcal' : 'kJ') + '/100g = ' + fmtNum(k, 1) + ' kcal');
+            (r.unit === 'kcal' ? 'kcal' : 'kJ') + '/100g = ' + fmtNum(k, 1) + ' kcal'
+            + (bagsOk ? '，约 ' + b + ' 小袋' : ''));
     });
     if (!valid) return '';
     lines.push('合计：' + fmtNum(totalKcal, 1) + ' kcal（' + fmtNum(totalKcal * 4.184, 1) + ' kJ），净含量 ' + fmtNum(totalG, 0) + 'g');
+    if (totalBags > 0) {
+        lines.push('每小袋（约）：' + fmtNum(totalKcal / totalBags, 1) + ' kcal ／ 按合计 ' + totalBags + ' 小袋折算');
+    }
     return lines.join('\n');
 }
 
