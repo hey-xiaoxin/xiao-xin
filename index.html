@@ -12026,7 +12026,7 @@ function qcRenderList() {
             + '<td><button class="qc-expand-btn" onclick="qcToggleDetail(\'' + detailId + '\', this)">展开 ▾</button></td>'
             + '</tr>';
         html += '<tr class="qc-detail-tr" id="' + detailId + '" style="display:none"><td colspan="7"><div class="qc-detail-block">'
-            + '<div class="qd-row"><span class="lbl">单号</span><span class="val">' + (r.sid ? qcEsc(r.sid) : '<span style="color:var(--muted)">—</span>') + '</span></div>'
+            + '<div class="qd-row"><span class="lbl">ID/单号</span><span class="val">' + (r.sid ? qcEsc(r.sid) : '<span style="color:var(--muted)">—</span>') + '</span></div>'
             + '<div class="qd-row"><span class="lbl">问题描述</span><span class="val">' + (r.detail ? qcEsc(r.detail) : '<span style="color:var(--muted)">—</span>') + '</span></div>'
             + '<div class="qd-row"><span class="lbl">问题图片</span><span class="val">' + (urls.length ? qcDetailImgsHtml(urls) : '<span style="color:var(--muted)">—</span>') + '</span></div>'
             + '</div></td></tr>';
