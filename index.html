@@ -4479,24 +4479,31 @@ header::after {
                                 fetch('./data.meta.json?t=' + Date.now(), { cache: 'no-store' })
                                     .then(function (r) { if (!r.ok) throw 0; return r.json(); })
                                     .then(function (meta) {
-                                        // 修复（2026-09-10）：用完整 ISO 时间戳比对，避免同一天多次更新时 slice(0,10) 都相同导致永远 ==
+                                        // 用完整 ISO 时间戳比对；再用版块指纹判断具体是哪个版块变了
                                         var cloudStamp = meta._exportedAt || '';
                                         var localStamp = localStorage.getItem('llm_data_exported_at_full') || '';
                                         var stampEl = document.getElementById('importStamp');
                                         if (!stampEl) return;
-                                        // 仅在用户当前看到「最新」时，主动提示云端有更新
-                                        // 避免覆盖用户主动 sync 中的「正在解密」状态
-                                        var txt = stampEl.textContent || '';
-                                        if (cloudStamp && localStamp && cloudStamp > localStamp && txt.indexOf('云端数据有更新') < 0 && txt.indexOf('同步完成') < 0 && txt.indexOf('正在') < 0) {
-                                            stampEl.textContent = '📦 云端数据有更新，请点击此处同步！';
-                                            stampEl.classList.add('stale');
-                                            // 桌面通知（仅在已登录时才推，避免登入前就打扰）
-                                            try {
-                                                if (!!localStorage.getItem('llm_pwd_cache') && typeof showNotification === 'function') {
-                                                    showNotification('云端数据已更新，请点击顶部胶囊同步');
-                                                }
-                                            } catch (e) { }
+                                        if (!cloudStamp || !localStamp || cloudStamp <= localStamp) return;
+                                        var names = _fpChangedNames(meta._fp);
+                                        if (names && names.length === 0) {
+                                            // 内容没变（只是重新打包）→ 静默对齐时间戳，不打扰客服
+                                            try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
+                                            _fpSave(meta._fp);
+                                            return;
                                         }
+                                        // 仅在用户当前看到「最新」时才提示，
+                                        // 避免覆盖「正在解密 / 同步完成」等中间状态
+                                        var txt = stampEl.textContent || '';
+                                        if (txt.indexOf('有更新') >= 0 || txt.indexOf('同步完成') >= 0 || txt.indexOf('正在') >= 0) return;
+                                        stampEl.textContent = _fpMsg(names);
+                                        stampEl.classList.add('stale');
+                                        // 桌面通知（仅在已登录时才推，避免登入前就打扰）
+                                        try {
+                                            if (!!localStorage.getItem('llm_pwd_cache') && typeof showNotification === 'function') {
+                                                showNotification(_fpNotice(names));
+                                            }
+                                        } catch (e) { }
                                     })
                                     .catch(function () { /* 静默忽略网络错误 */ });
                             } catch (e) { }
@@ -11101,6 +11108,45 @@ function finishImport(name) {
 //   数据包自带日期未知 + 本地无数据                          → 「当前导入数据包为最新版！」（兜底）
 // 数据包日期来源：完整数据包导入时从文件名「_YYYY-MM-DD」抽，写入 localStorage.llm_data_exported_at
 // 在线版额外对比云端 data.meta.json 的 _exportedAt，让员工知道是不是有更新
+//
+// ============== 版块指纹：把「云端有更新」精确到具体版块 ==============
+// build-data.js 会把每个版块内容的 SHA-256 短指纹写进 data.meta.json 的 _fp；
+// 客服端在「已是最新」或同步完成时把云端 _fp 记进 localStorage，
+// 以后轮询一比对，就知道这次变的是产品 / 班表 / 绩效 / 质检中的哪一块。
+var LLM_FP_KEY = 'llm_data_fp';
+var LLM_FP_LABELS = { product: '产品', schedule: '班表', perf: '绩效', qc: '质检' };
+
+function _fpLoad() {
+    try { return JSON.parse(localStorage.getItem(LLM_FP_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
+function _fpSave(fp) {
+    if (!fp || typeof fp !== 'object') return;
+    try { localStorage.setItem(LLM_FP_KEY, JSON.stringify(fp)); } catch (e) { }
+}
+// 返回变化的版块中文名数组；
+//   []    = 各版块指纹完全一致（内容其实没变，只是重新打包了一次）
+//   null  = 本地没有指纹记录（老版本同步过），无法判断具体版块
+function _fpChangedNames(cloudFp) {
+    if (!cloudFp || typeof cloudFp !== 'object') return null;
+    var keys = Object.keys(cloudFp);
+    if (!keys.length) return null;
+    var localFp = _fpLoad();
+    var known = false;
+    for (var i = 0; i < keys.length; i++) { if (localFp[keys[i]]) { known = true; break; } }
+    if (!known) return null;
+    var names = [];
+    keys.forEach(function (k) { if (localFp[k] !== cloudFp[k]) names.push(LLM_FP_LABELS[k] || k); });
+    return names;
+}
+function _fpMsg(names) {
+    if (!names || !names.length) return '📦 云端数据有更新，请点击此处同步！';
+    return '📦 云端' + names.join('、') + '数据有更新，请点击此处同步！';
+}
+function _fpNotice(names) {
+    if (!names || !names.length) return '云端数据已更新，请点击顶部胶囊同步';
+    return '云端' + names.join('、') + '数据已更新，请点击顶部胶囊同步';
+}
+
 function updateImportStamp() {
     var el = document.getElementById('importStamp');
     if (!el) return;
@@ -11137,11 +11183,22 @@ function updateImportStamp() {
                     return;
                 }
                 if (cloudStamp && localStamp < cloudStamp) {
-                    // 云端比本地新 → 有更新
-                    el.textContent = '📦 云端数据有更新，请点击此处同步！';
-                    el.classList.add('stale');
+                    // 云端比本地新 → 有更新，尽量精确到具体版块
+                    var names = _fpChangedNames(meta._fp);
+                    if (names && names.length === 0) {
+                        // 各版块指纹完全一致 = 内容其实没变（管理员只是重新打包了一次）
+                        // 静默把本地时间戳对齐到云端，不给客服弹无意义的「有更新」
+                        try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
+                        _fpSave(meta._fp);
+                        el.textContent = '✅ 当前为最新数据';
+                        el.classList.remove('stale');
+                    } else {
+                        el.textContent = _fpMsg(names);
+                        el.classList.add('stale');
+                    }
                 } else if (cloudStamp && localStamp >= cloudStamp) {
                     // 完全一致或本地更新（本地管理员刚 build 没同步）→ 最新
+                    _fpSave(meta._fp);   // 顺手记住云端版块指纹，下次更新即可精确提示
                     el.textContent = '✅ 当前为最新数据';
                     el.classList.remove('stale');
                 } else {
@@ -11563,6 +11620,8 @@ function qcUploadFile(file) {
                 QC_DATA.savedAt = new Date().toISOString();
                 if (nameEl) nameEl.textContent = '已导入：' + file.name + '（' + QC_DATA.rows.length + ' 条）';
                 QCStorage.save();
+                // 新导入后把筛选复位，并默认切到最新月份（多个月份的数据不再混在一起展示）
+                QC_FILTER = { date: qcLatestMonthKey(), who: '__all', item: '__all', content: '__all', kw: '' };
                 qcRenderAll();
                 showNotification('质检数据已加载：' + QC_DATA.rows.length + ' 条');
             } catch (err) {
@@ -11633,8 +11692,8 @@ function qcClearStored() {
 
 /* ---------- 渲染 ---------- */
 function qcRenderAll() {
+    qcRenderFilter();   // 先归一化筛选值（无效值会被重置为「全部」），再渲染统计/列表/排名
     qcRenderStats();
-    qcRenderFilter();
     qcRenderList();
     qcRenderRanks();
 }
@@ -11642,7 +11701,8 @@ function qcRenderAll() {
 function qcRenderStats() {
     var statsEl = document.getElementById('qcStats');
     if (!statsEl) return;
-    var rows = QC_DATA.rows || [];
+    // 统计跟随当前筛选（默认「最新月份」），与列表 / 排名口径保持一致
+    var rows = (QC_DATA.rows || []).length ? qcGetFiltered() : [];
     var total = rows.length;
     var deductSum = rows.reduce(function (s, r) { return s + (r.deduct || 0); }, 0);
     var avg = total ? (deductSum / total) : 0;
@@ -11856,13 +11916,46 @@ function qcApplyFilter() {
     QC_FILTER.item = document.getElementById('qcFilterItem').value;
     QC_FILTER.content = document.getElementById('qcFilterType').value;
     QC_FILTER.kw = document.getElementById('qcFilterKw').value.trim();
+    qcRefreshDateLabel();
+    qcRenderStats();
     qcRenderList();
+    qcRenderRanks();
 }
 
+// 质检：「最新月份」筛选键（'m:YYYY-MM'；无年份的日期为 'm:MM'；全无日期则 '__all'）
+// 导入多个月份的数据后，默认只展示最新月份，而不是把所有月份混在一起
+function qcLatestMonthKey() {
+    var rows = QC_DATA.rows || [];
+    // 带年份的（2026-09-03）与只有月日的（09-03）分开比，
+    // 避免两种格式混在一起时按字符串比大小把月份比错
+    var bestY = '', bestM = '';
+    rows.forEach(function (r) {
+        var d = (r && r.date) ? String(r.date) : '';
+        var key = '';
+        var m = /^(\d{4})-(\d{2})-\d{2}/.exec(d);
+        var isY = !!m;
+        if (m) key = m[1] + '-' + m[2];
+        else { var md = /^(\d{2})-\d{2}$/.exec(d); if (md) key = md[1]; }
+        if (key) { if (isY) { if (key > bestY) bestY = key; } else { if (key > bestM) bestM = key; } }
+    });
+    if (bestY) return 'm:' + bestY;
+    if (bestM) return 'm:' + bestM;
+    return '__all';
+}
+
+// 刷新日期按钮上的文案（选中日期后原先不会更新，会一直显示「全部日期」）
+function qcRefreshDateLabel() {
+    var lab = document.getElementById('qcDateLabel');
+    if (!lab) return;
+    var seen = {}, n = 0;
+    (QC_DATA.rows || []).forEach(function (r) { if (r.date && !seen[r.date]) { seen[r.date] = 1; n++; } });
+    lab.textContent = qcDateLabelText(QC_FILTER.date, n);
+}
+
+// 重置筛选：回到默认视角（最新月份），而不是「全部日期」
 function qcResetFilter() {
-    QC_FILTER = { date: '__all', who: '__all', item: '__all', content: '__all', kw: '' };
-    qcRenderFilter();
-    qcRenderList();
+    QC_FILTER = { date: qcLatestMonthKey(), who: '__all', item: '__all', content: '__all', kw: '' };
+    qcRenderAll();   // qcRenderAll 内部会重建筛选面板并刷新日期按钮文案
 }
 
 function qcImageUrls(imagesField) {
@@ -11957,9 +12050,11 @@ function qcToggleDetail(id, btn) {
 function qcRenderRanks() {
     var box = document.getElementById('qcRanks');
     if (!box) return;
-    var rows = QC_DATA.rows || [];
+    // 排名跟随当前筛选（默认「最新月份」），与列表 / 统计口径保持一致
+    var rows = qcGetFiltered();
     if (!rows.length) {
-        box.innerHTML = '<div class="qc-empty" style="padding:24px">暂无数据</div>';
+        var hasAny = (QC_DATA.rows || []).length > 0;
+        box.innerHTML = '<div class="qc-empty" style="padding:24px">' + (hasAny ? '当前筛选条件下无数据' : '暂无数据') + '</div>';
         return;
     }
     // 人员扣分聚合（扣分最多排最前）
@@ -12086,6 +12181,8 @@ function qcBindUpload() {
             var tag = stored.imagesDropped ? '（图片未保存）' : '';
             nameEl.textContent = '已恢复：' + (stored.fileName || '本地数据') + '（' + stored.rows.length + ' 条）' + tag;
         }
+        // 打开页面默认展示最新月份（数据跨多个月时不再一屏混着看）
+        QC_FILTER.date = qcLatestMonthKey();
         qcRenderAll();
     }
 }
