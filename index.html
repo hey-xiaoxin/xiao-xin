@@ -4475,6 +4475,22 @@ header::after {
                 } catch (e) { }
             }
 
+            // 在线部署版：打开页面就【后台】把加密数据包预热一遍，把输密码这几秒利用起来。
+            // 只是让浏览器缓存住这个文件，不解密、不校验，没有任何安全影响；
+            // 等用户输完密码真正登录时，同一个 URL 直接命中缓存 → 不用再干等二三十秒。
+            if (location.protocol !== 'file:') {
+                try {
+                    if (!window._llmPrefetched) {
+                        window._llmPrefetched = true;
+                        if (typeof _fetchCloudVersion === 'function' && typeof _cloudDataUrl === 'function') {
+                            _fetchCloudVersion().then(function (v) {
+                                return fetch(_cloudDataUrl(v), { cache: 'default' });
+                            }).catch(function () { });
+                        }
+                    }
+                } catch (e) { }
+            }
+
             // 在线部署版首次打开：若本地没有任何工作台数据，自动从云端 data.json 同步
             // 仅在已经登录后（密码已缓存）触发，未登录时等用户先登录
             if (location.protocol !== 'file:' && typeof syncFromCloud === 'function') {
@@ -4760,14 +4776,33 @@ header::after {
                         return;
                     }
                     loginBtn.textContent = '验证密码...';
-                    fetch('./data.enc.json?t=' + Date.now(), { cache: 'no-store' })
+                    // 数据包有 3.5MB（里面是质检截图），网速慢时要等十几秒到一分钟。
+                    // 显示已等待秒数，避免看起来像卡死。
+                    var _t0 = Date.now();
+                    var _tick = setInterval(function () {
+                        try {
+                            loginBtn.textContent = '验证密码... 已等待 '
+                                + Math.round((Date.now() - _t0) / 1000) + ' 秒';
+                        } catch (e) { }
+                    }, 1000);
+                    // 先取极小的 meta 拿到「数据版本号」，再按版本号去取加密包。
+                    // 版本没变 → 直接命中浏览器缓存/304，不再重复下载整个数据包。
+                    var _verP = (typeof _fetchCloudVersion === 'function')
+                        ? _fetchCloudVersion() : Promise.resolve('');
+                    _verP.then(function (ver) {
+                        var url = (typeof _cloudDataUrl === 'function')
+                            ? _cloudDataUrl(ver) : ('./data.enc.json?t=' + Date.now());
+                        return fetch(url, ver ? { cache: 'default' } : { cache: 'no-store' });
+                    })
                         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-                        .then(function (payload) { return _decryptPayload(password, payload); })
+                        .then(function (payload) { clearInterval(_tick); return _decryptPayload(password, payload); })
                         .then(function (data) {
                             // 解密成功 → 密码正确 → 走普通用户登录
                             _doLogin(password, false);
+                            return data;
                         })
                         .catch(function (err) {
+                            clearInterval(_tick);
                             passwordError.textContent = '密码错误，请向管理员获取正确密码';
                             passwordError.style.display = 'block';
                             loginBtn.disabled = false;
@@ -11407,6 +11442,36 @@ function _concatBytes(a, b) {
     out.set(a, 0); out.set(b, a.length);
     return out;
 }
+// ============== 数据包「版本号」与按版本取包 ==============
+// 背景：data.enc.json 有 4.6MB（其中 3MB 是质检截图），而登录必须先把整个包下载下来
+// 才能验证密码。以前每次登录都带 ?t=时间戳 + cache:'no-store'，等于强行绕过缓存，
+// 同一份数据也要重下一遍 —— 网速差的时候就是「输完密码等几十秒」。
+// 现在改成：先取极小的 data.meta.json 拿到版本号，再用 ?v=版本号 去取加密包。
+// 版本号 = _exportedAt + 各版块指纹，只要内容有任何变化版本号就一定变，
+// 所以既能保证拿到最新数据，又能在版本没变时直接命中缓存（或 304 不带 body）。
+function _cloudVersionFromMeta(meta) {
+    try {
+        var fps = meta && meta._fp, sig = '';
+        if (fps && typeof fps === 'object') {
+            sig = Object.keys(fps).sort().map(function (k) { return k + '=' + fps[k]; }).join('&');
+        }
+        var stamp = (meta && meta._exportedAt) || '';
+        if (!stamp && !sig) return '';
+        return encodeURIComponent(stamp + '|' + sig);
+    } catch (e) { return ''; }
+}
+function _cloudDataUrl(version) {
+    return './data.enc.json' + (version ? '?v=' + version : '?t=' + Date.now());
+}
+// 失败时不抛错，返回 '' → 调用方退回旧的「带时间戳 + no-store」行为，绝不会因此拿不到数据
+function _fetchCloudVersion() {
+    if (location.protocol === 'file:') return Promise.resolve('');
+    return fetch('./data.meta.json?t=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (m) { return _cloudVersionFromMeta(m); })
+        .catch(function () { return ''; });
+}
+
 async function _deriveKey(password, saltBytes, iterations) {
     var enc = new TextEncoder();
     var km = await crypto.subtle.importKey(
@@ -11451,8 +11516,10 @@ function syncFromCloud(ev) {
     var oldText = el.textContent;
     el.textContent = '⏳ 正在从云端拉取最新数据…';
     el.classList.remove('stale');
-    var url = './data.enc.json?t=' + Date.now();
-    fetch(url, { cache: 'no-store' }).then(function (r) {
+    // 同登录：先取 meta 拿版本号，再按版本取包，版本没变就不重复下载 4.6MB
+    _fetchCloudVersion().then(function (ver) {
+        return fetch(_cloudDataUrl(ver), ver ? { cache: 'default' } : { cache: 'no-store' });
+    }).then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.json();
     }).then(function (payload) {
