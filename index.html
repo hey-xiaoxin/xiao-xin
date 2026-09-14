@@ -1145,7 +1145,7 @@ header { position: relative; }
   /* Tips area */
   .tips-area { margin-top: 16px; padding: 14px 16px; background: linear-gradient(135deg, #faf8ff, #f5f3ff); border-radius: var(--radius-md); border: 1.5px dashed var(--border); }
   .tips-label { font-size: 0.75rem; font-weight: 700; color: var(--accent); margin-bottom: 8px; display: flex; align-items: center; gap: 4px; }
-  .tips-input { width: 100%; min-height: 60px; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 0.82rem; font-family: inherit; color: var(--sch-text); background: var(--surface); resize: none; outline: none; transition: all 0.2s; line-height: 1.6; overflow: hidden; }
+  .tips-input { width: 100%; min-height: 60px; max-height: 360px; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 0.82rem; font-family: inherit; color: var(--sch-text); background: var(--surface); resize: none; outline: none; transition: border-color 0.2s, box-shadow 0.2s; line-height: 1.6; overflow-y: auto; field-sizing: content; }
   .tips-input:focus { border-color: var(--accent-2); box-shadow: 0 0 0 3px var(--accent-glow); }
   .tips-input::placeholder { color: var(--muted); }
   .tips-empty { display: none; }
@@ -4876,7 +4876,7 @@ header::after {
                 renderProductDisplay();
                 toggleProductDisplay();
             }
-            else if (tabName === 'schedule') { schRender(); }
+            else if (tabName === 'schedule') { schRender(); tipsResizeSoon(); }
             else if (tabName === 'calc') { calcRender(); }
             else if (tabName === 'board' && appData.isLoggedIn) { boardRender(); }
         }
@@ -7397,6 +7397,7 @@ function importJSON(e) {
       if (data.tips) document.getElementById('tipsInput').value = data.tips;
       doSave();
       render();
+      tipsResizeSoon();
       showNotification('✅ 数据已恢复');
     } catch (err) { showNotification('文件解析失败'); console.error(err); }
   };
@@ -7556,14 +7557,47 @@ function loadData() {
 function autoResizeTips() {
   const el = document.getElementById('tipsInput');
   if (!el) return;
-  el.style.height = 'auto';
-  el.style.height = Math.max(60, el.scrollHeight) + 'px';
+  // 页面不可见时（还没切到班表页 / 父容器 display:none）量出来是 0，会把框压成 60px。
+  // 这种情况直接跳过，等切到班表页时再量（switchTab 里有触发）。
+  if (!el.getClientRects().length) return;
+  const cs = getComputedStyle(el);
+  const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  // box-sizing 是 border-box：scrollHeight 只含内容+内边距、不含上下边框，
+  // 直接拿它当 height 会少算边框那几像素 → 最后一行被裁掉。这里补上边框。
+  const borderY = (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+  const minH = Math.max(parseFloat(cs.minHeight) || 0, 60);
+  el.style.height = 'auto';                 // 先归零再量，否则框只会越撑越大
+  let need = el.scrollHeight + borderY;
+  // 兜底：不同浏览器内核对 textarea 的 scrollHeight 口径不完全一致（是否含内边距），
+  // 用一个隐藏镜像再量一次「文字到底需要多高」，两个值取大，保证哪个内核都不会裁字。
+  try {
+    const innerW = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    if (innerW > 0) {
+      const m = document.createElement('div');
+      m.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;pointer-events:none;'
+        + 'white-space:pre-wrap;overflow-wrap:break-word;word-break:break-word;box-sizing:content-box;'
+        + 'font-family:' + cs.fontFamily + ';font-size:' + cs.fontSize + ';font-weight:' + cs.fontWeight
+        + ';font-style:' + cs.fontStyle + ';letter-spacing:' + cs.letterSpacing + ';line-height:' + cs.lineHeight
+        + ';width:' + innerW + 'px;';
+      m.textContent = el.value || '';
+      document.body.appendChild(m);
+      const mirrorH = Math.ceil(m.getBoundingClientRect().height) + padY + borderY;
+      m.remove();
+      if (mirrorH > need) need = mirrorH;
+    }
+  } catch (e) { }
+  el.style.height = Math.max(minH, Math.ceil(need)) + 'px';
 }
 function onTipsChange() {
   if (!schEditable()) { showNotification('当前为只读模式，仅管理员可编辑', 'error'); return; }
   autoResizeTips();
   doSave();
 }
+// 备注框「跟着文字行数自动变高」的兜底触发：
+// 切到班表页、窗口尺寸变化、字体加载完成后都重量一次，避免出现框没撑开、文字显示不全
+function tipsResizeSoon() { setTimeout(autoResizeTips, 0); }
+window.addEventListener('resize', function () { clearTimeout(window._tipsRzT); window._tipsRzT = setTimeout(autoResizeTips, 150); });
+try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { autoResizeTips(); }); } catch (e) { }
 
 /* ================================================================
    TOAST
