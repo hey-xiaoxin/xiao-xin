@@ -2822,6 +2822,28 @@ label { color: var(--text-light) !important; }
 }
 .tab.disabled { opacity: .4 !important; pointer-events: none !important; }
 
+/* ---------- 版块更新红点（云端哪个版块有更新，该标签右上角就亮红点，点进版块后消失） ---------- */
+.tab { position: relative; }
+.tab.has-dot::after {
+    content: "";
+    position: absolute; top: 3px; right: 9px;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #ff3b30 !important;
+    box-shadow: 0 0 6px rgba(255,59,48,.9), 0 0 0 1.5px rgba(255,255,255,.9);
+    animation: tabDotPulse 1.6s ease-in-out infinite;
+    pointer-events: none;
+}
+.tab.active.has-dot::after {
+    box-shadow: 0 0 6px rgba(255,59,48,.95), 0 0 0 1.5px rgba(255,255,255,.95);
+}
+@keyframes tabDotPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: .7; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tab.has-dot::after { animation: none; }
+}
+
 /* ---------- 7. KPI 卡片 ---------- */
 .kpi-box {
     background: rgba(255, 255, 255, .05) !important;
@@ -4490,6 +4512,7 @@ header::after {
                                         if (!stampEl) return;
                                         if (!cloudStamp || !localStamp || cloudStamp <= localStamp) return;
                                         var names = _fpChangedNames(meta._fp);
+                                        _dotSync(_fpChangedKeys(meta._fp), cloudStamp);   // 对应版块标签亮红点
                                         if (names && names.length === 0) {
                                             // 内容没变（只是重新打包）→ 静默对齐时间戳，不打扰客服
                                             try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
@@ -4831,6 +4854,9 @@ header::after {
             // 显示选中的页面和标签
             document.getElementById(`${tabName}-page`).classList.add('active');
             document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
+
+            // 已进入该版块 → 熄灭它的「有更新」红点
+            try { _dotClearByTab(tabName); } catch (e) { }
             
             // 隐藏悬浮保存按钮
             document.getElementById('floating-save-btn').style.display = 'none';
@@ -11146,10 +11172,10 @@ function _fpSave(fp) {
     if (!fp || typeof fp !== 'object') return;
     try { localStorage.setItem(LLM_FP_KEY, JSON.stringify(fp)); } catch (e) { }
 }
-// 返回变化的版块中文名数组；
+// 返回变化的版块英文 key 数组；
 //   []    = 各版块指纹完全一致（内容其实没变，只是重新打包了一次）
 //   null  = 本地没有指纹记录（老版本同步过），无法判断具体版块
-function _fpChangedNames(cloudFp) {
+function _fpChangedKeys(cloudFp) {
     if (!cloudFp || typeof cloudFp !== 'object') return null;
     var keys = Object.keys(cloudFp);
     if (!keys.length) return null;
@@ -11157,9 +11183,14 @@ function _fpChangedNames(cloudFp) {
     var known = false;
     for (var i = 0; i < keys.length; i++) { if (localFp[keys[i]]) { known = true; break; } }
     if (!known) return null;
-    var names = [];
-    keys.forEach(function (k) { if (localFp[k] !== cloudFp[k]) names.push(LLM_FP_LABELS[k] || k); });
-    return names;
+    var out = [];
+    keys.forEach(function (k) { if (localFp[k] !== cloudFp[k]) out.push(k); });
+    return out;
+}
+function _fpChangedNames(cloudFp) {
+    var keys = _fpChangedKeys(cloudFp);
+    if (keys === null) return null;
+    return keys.map(function (k) { return LLM_FP_LABELS[k] || k; });
 }
 function _fpMsg(names) {
     if (!names || !names.length) return '📦 云端数据有更新，请点击此处同步！';
@@ -11169,6 +11200,68 @@ function _fpNotice(names) {
     if (!names || !names.length) return '云端数据已更新，请点击顶部胶囊同步';
     return '云端' + names.join('、') + '数据已更新，请点击顶部胶囊同步';
 }
+
+// ============== 版块更新红点 ==============
+// 云端哪个版块有更新，就在对应标签右上角亮一个红点；
+// 点进该版块（切换标签）红点才消失；管理员下一次发布新数据（时间戳变化）时红点重新出现。
+// 「已点掉」记录按云端时间戳分组存在 localStorage，刷新页面不会把已点掉的红点又亮回来。
+// 注意：本模块可能在文件位置更靠前的地方被调用（updateImportStamp 的 fetch 回调），
+//      所以状态与映射表都做成「调用时惰性求值」，不依赖模块级变量已完成赋值。
+var _dotState = null;
+function _dotCfg() {
+    return {
+        key: 'llm_data_dots',
+        fpTab: { product: 'search-tab', schedule: 'schedule-tab', perf: 'board-tab', qc: 'qc-tab' },
+        tabFp: { search: 'product', schedule: 'schedule', board: 'perf', qc: 'qc' }
+    };
+}
+function _dotLoad() {
+    if (_dotState && typeof _dotState === 'object') return _dotState;
+    var k = _dotCfg().key;
+    try { _dotState = JSON.parse(localStorage.getItem(k) || '{}') || {}; } catch (e) { _dotState = {}; }
+    if (!_dotState || typeof _dotState !== 'object') _dotState = {};
+    return _dotState;
+}
+function _dotPersist() {
+    try { localStorage.setItem(_dotCfg().key, JSON.stringify(_dotLoad())); } catch (e) { }
+}
+function _dotRender() {
+    var s = _dotLoad(), fpTab = _dotCfg().fpTab;
+    var keys = s.keys || [], cleared = s.cleared || [];
+    Object.keys(fpTab).forEach(function (k) {
+        var tab = document.getElementById(fpTab[k]);
+        if (!tab) return;
+        if (keys.indexOf(k) >= 0 && cleared.indexOf(k) < 0) tab.classList.add('has-dot');
+        else tab.classList.remove('has-dot');
+    });
+}
+// 由「云端指纹比对」结果驱动：keys = 变化版块 key 数组，stamp = 云端时间戳
+//   keys === null  → 无法判断具体版块（老用户首次），保持现状
+//   keys === []    → 没有任何版块变化 → 红点全部熄灭
+function _dotSync(keys, stamp) {
+    if (keys === null || typeof keys === 'undefined') return;
+    var s = _dotLoad();
+    if (!keys.length) { _dotState = {}; _dotPersist(); _dotRender(); return; }
+    if (s.stamp !== (stamp || '')) _dotState = { stamp: stamp || '', cleared: [] };
+    s = _dotLoad();
+    s.keys = keys;
+    if (!s.cleared) s.cleared = [];
+    _dotPersist(); _dotRender();
+}
+// 点进版块 → 熄灭该版块红点
+function _dotClearByTab(tabName) {
+    var k = _dotCfg().tabFp[tabName];
+    if (!k) return;
+    var s = _dotLoad();
+    if (!s.keys || s.keys.indexOf(k) < 0) return;
+    s.cleared = (s.cleared || []).concat([k]);
+    _dotPersist(); _dotRender();
+}
+// 首次渲染：把上次没点掉的版块红点亮回来（状态存在 localStorage，刷新页面不会丢）
+try {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _dotRender);
+    else _dotRender();
+} catch (e) { }
 
 function updateImportStamp() {
     var el = document.getElementById('importStamp');
@@ -11208,6 +11301,7 @@ function updateImportStamp() {
                 if (cloudStamp && localStamp < cloudStamp) {
                     // 云端比本地新 → 有更新，尽量精确到具体版块
                     var names = _fpChangedNames(meta._fp);
+                    _dotSync(_fpChangedKeys(meta._fp), cloudStamp);   // 对应版块标签亮红点
                     if (names && names.length === 0) {
                         // 各版块指纹完全一致 = 内容其实没变（管理员只是重新打包了一次）
                         // 静默把本地时间戳对齐到云端，不给客服弹无意义的「有更新」
@@ -11221,6 +11315,7 @@ function updateImportStamp() {
                     }
                 } else if (cloudStamp && localStamp >= cloudStamp) {
                     // 完全一致或本地更新（本地管理员刚 build 没同步）→ 最新
+                    // 注意：这里不熄灭红点。红点是「未读」标记，按需求只在点进该版块时才消失
                     _fpSave(meta._fp);   // 顺手记住云端版块指纹，下次更新即可精确提示
                     el.textContent = '✅ 当前为最新数据';
                     el.classList.remove('stale');
