@@ -4533,15 +4533,15 @@ header::after {
                                 fetch('./data.meta.json?t=' + Date.now(), { cache: 'no-store' })
                                     .then(function (r) { if (!r.ok) throw 0; return r.json(); })
                                     .then(function (meta) {
+                                        // 红点自愈：每 60s 检查一次。只要发现红点是「旧指纹口径」算出来的，
+                                        // 就地熄灭 —— 客服不用刷新、不用点进去，红点「点进去没新数据」的误报不会残留。
+                                        // 注意：必须在时间戳比较之前跑，因为误报红点恰恰出现在「时间戳已对齐」的客服身上。
+                                        try { _dotHeal(meta); } catch (e) { }
                                         // 用完整 ISO 时间戳比对；再用版块指纹判断具体是哪个版块变了
                                         var cloudStamp = meta._exportedAt || '';
                                         var localStamp = localStorage.getItem('llm_data_exported_at_full') || '';
                                         var stampEl = document.getElementById('importStamp');
                                         if (!stampEl) return;
-                                        // 红点自愈：每 60s 检查一次。只要发现红点是「旧指纹口径」算出来的，
-                                        // 就地熄灭 —— 客服不用刷新、不用点进去，红点「点进去没新数据」的误报不会残留。
-                                        // 注意：必须在时间戳比较之前跑，因为误报红点恰恰出现在「时间戳已对齐」的客服身上。
-                                        try { _dotHeal(meta); } catch (e) { }
                                         if (!cloudStamp || !localStamp || cloudStamp <= localStamp) return;
                                         var _ck = _fpChangedKeys(meta._fp);
                                         if (_ck === null) {
@@ -4553,8 +4553,9 @@ header::after {
                                             return;
                                         }
                                         // 剔除「指纹口径升级」造成的假差异（如质检图片换存储形态），只提示真更新
-                                        var names = _fpRealKeys(meta, _ck).map(function (k) { return LLM_FP_LABELS[k] || k; });
-                                        _dotSync(_fpRealKeys(meta, _ck), cloudStamp, meta._fpv);   // 只给真更新的版块亮红点
+                                        var realKeys = _fpRealKeys(meta, _ck);
+                                        var names = realKeys.map(function (k) { return LLM_FP_LABELS[k] || k; });
+                                        _dotSync(realKeys, cloudStamp, meta._fpv);   // 只给真更新的版块亮红点
                                         if (!names.length) {
                                             // 内容没变（只是重新打包 / 口径变了）→ 静默对齐时间戳，不打扰客服
                                             try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
