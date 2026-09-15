@@ -4538,19 +4538,25 @@ header::after {
                                         var localStamp = localStorage.getItem('llm_data_exported_at_full') || '';
                                         var stampEl = document.getElementById('importStamp');
                                         if (!stampEl) return;
+                                        // 红点自愈：每 60s 检查一次。只要发现红点是「旧指纹口径」算出来的，
+                                        // 就地熄灭 —— 客服不用刷新、不用点进去，红点「点进去没新数据」的误报不会残留。
+                                        // 注意：必须在时间戳比较之前跑，因为误报红点恰恰出现在「时间戳已对齐」的客服身上。
+                                        try { _dotHeal(meta); } catch (e) { }
                                         if (!cloudStamp || !localStamp || cloudStamp <= localStamp) return;
                                         var _ck = _fpChangedKeys(meta._fp);
-                                        // 指纹「口径升级」过渡（如质检图片改外置）→ 静默对齐，不打扰客服
-                                        if (_fpCanSilentSkip(meta, _ck)) {
-                                            _fpAdopt(meta);
-                                            try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
-                                            _dotSync([], cloudStamp);
+                                        if (_ck === null) {
+                                            // 本地没有指纹记录（老用户）→ 无法定位版块，走通用提示；红点保持现状
+                                            var txt0 = stampEl.textContent || '';
+                                            if (txt0.indexOf('有更新') >= 0 || txt0.indexOf('同步完成') >= 0 || txt0.indexOf('正在') >= 0) return;
+                                            stampEl.textContent = _fpMsg(null);
+                                            stampEl.classList.add('stale');
                                             return;
                                         }
-                                        var names = _fpChangedNames(meta._fp);
-                                        _dotSync(_ck, cloudStamp);   // 对应版块标签亮红点
-                                        if (names && names.length === 0) {
-                                            // 内容没变（只是重新打包）→ 静默对齐时间戳，不打扰客服
+                                        // 剔除「指纹口径升级」造成的假差异（如质检图片换存储形态），只提示真更新
+                                        var names = _fpRealKeys(meta, _ck).map(function (k) { return LLM_FP_LABELS[k] || k; });
+                                        _dotSync(_fpRealKeys(meta, _ck), cloudStamp, meta._fpv);   // 只给真更新的版块亮红点
+                                        if (!names.length) {
+                                            // 内容没变（只是重新打包 / 口径变了）→ 静默对齐时间戳，不打扰客服
                                             try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
                                             _fpAdopt(meta);
                                             return;
@@ -11326,10 +11332,13 @@ function _fpSave(fp) {
 // 数据一字未改，指纹却必然变了 → 客服端把所有版块都比一遍，看到 qc 变了，
 // 就弹「📦 云端质检数据有更新」并亮红点 —— 这是误报。
 //
-// 处理：云端 data.meta.json 带 _fpv（当前 2）。客服端把同步过的版本号记在本地，
-//       一旦发现云端版本号更高，且「除了质检以外其它版块都没变」，
-//       就静默把本地指纹/时间戳对齐云端（不弹提示、不亮红点），并记下新版本号。
+// 处理：云端 data.meta.json 带 _fpv（当前 3）。客服端把同步过的版本号记在本地，
+//       一旦发现云端版本号更高，就把「质检」这一项的差异当作口径变化静默吞掉
+//       （即使同一次发布里还有别的版块真更新，也只吞质检那一项），
+//       并静默对齐本地指纹/时间戳；红点则由 _dotHeal 做一次自愈清理。
 //       只影响这一次过渡；之后质检真更新了照样正常提示。
+//       _fpv=3 起，打包脚本已把「图片存储形态」从指纹输入里剥掉（build-data.js fpCanon），
+//       所以以后再怎么调图片压缩/外置策略，都不会再误报「质检有更新」。
 var LLM_FPV_KEY = 'llm_data_fpv';
 function _fpvLoad() {
     try { return localStorage.getItem(LLM_FPV_KEY) || ''; } catch (e) { return ''; }
@@ -11349,17 +11358,27 @@ function _fpvUpgraded(meta) {
     if (!meta || meta._fpv === undefined || meta._fpv === null) return false;
     return String(_fpvLoad()) !== String(meta._fpv);
 }
-// 本次差异是否可以静默跳过：
+// 本次差异里「可以静默吞掉」的版块（口径升级造成的假差异），返回 key 数组：
 //   ① 云端带了新的指纹版本号（口径升级）
-//   ② 变化的版块只有「质检」一项
-//   ③ 本地确实有指纹记录（= 这个客服在带指纹的版本里同步过，有真实数据；
-//      老客服/新用户没有记录 → 走正常提示，宁可多提示也不漏更新）
-function _fpCanSilentSkip(meta, changedKeys) {
-    if (!_fpvUpgraded(meta)) return false;
-    if (!changedKeys || changedKeys.length !== 1 || changedKeys[0] !== 'qc') return false;
+//   ② 本地确实有指纹记录（= 这个客服在带指纹的版本里同步过，有真实数据；
+//      老客服/新用户没有记录 → 不吞，走正常提示，宁可多提示也不漏更新）
+// 目前只有「质检」的口径变过（图片 base64 内嵌 → 外置引用 → 剥离进指纹）。
+// 即使同一次发布里产品/班表等版块真的更新了，也只吞质检那一项，其余照常提示。
+function _fpSilentKeys(meta, changedKeys) {
+    if (!_fpvUpgraded(meta)) return [];
+    if (!changedKeys || !changedKeys.length) return [];
     var localFp = _fpLoad();
-    if (!localFp || !localFp.qc) return false;
-    return true;
+    if (!localFp || !localFp.qc) return [];
+    if (changedKeys.indexOf('qc') >= 0) return ['qc'];
+    return [];
+}
+// 本次差异里「真正需要提示/亮红点」的版块 = 变化版块 - 可静默吞掉的版块
+//   返回 null = 无法判断（本地无指纹记录的老用户）
+function _fpRealKeys(meta, changedKeys) {
+    if (changedKeys === null) return null;
+    var silent = _fpSilentKeys(meta, changedKeys);
+    if (!silent.length) return changedKeys;
+    return changedKeys.filter(function (k) { return silent.indexOf(k) < 0; });
 }
 // 返回变化的版块英文 key 数组；
 //   []    = 各版块指纹完全一致（内容其实没变，只是重新打包了一次）
@@ -11424,10 +11443,11 @@ function _dotRender() {
         else tab.classList.remove('has-dot');
     });
 }
-// 由「云端指纹比对」结果驱动：keys = 变化版块 key 数组，stamp = 云端时间戳
+// 由「云端指纹比对」结果驱动：keys = 变化版块 key 数组，stamp = 云端时间戳，
+// fpv = 这次判定用的「指纹算法版本号」（记下来，供下次口径升级时判断红点是否可信）
 //   keys === null  → 无法判断具体版块（老用户首次），保持现状
 //   keys === []    → 没有任何版块变化 → 红点全部熄灭
-function _dotSync(keys, stamp) {
+function _dotSync(keys, stamp, fpv) {
     if (keys === null || typeof keys === 'undefined') return;
     var s = _dotLoad();
     if (!keys.length) { _dotState = {}; _dotPersist(); _dotRender(); return; }
@@ -11435,6 +11455,28 @@ function _dotSync(keys, stamp) {
     s = _dotLoad();
     s.keys = keys;
     if (!s.cleared) s.cleared = [];
+    if (fpv !== undefined && fpv !== null && fpv !== '') s.fpv = String(fpv);
+    _dotPersist(); _dotRender();
+}
+
+// ============== 红点自愈（口径升级后旧红点不再可信） ==============
+// 场景：指纹「算法口径」升级后（如质检图片从 base64 内嵌改成外置引用），
+//       用旧口径算出来的红点可能只是「图片存储形态变了」，并不是真有新数据。
+//       更麻烦的是：客服一旦同步过、时间戳对齐云端，页面后续都走「已是最新」分支，
+//       按「红点是未读标记、不主动熄灭」的设计，这个红点会一直挂着 ——
+//       客服点进去发现没新数据 → 红点失去信任 → 以后真更新也懒得点。
+// 处理：只要发现「我记红点时的口径版本号」≠「云端当前口径版本号」，
+//       就把这批旧口径的红点全部熄灭（不弹提示、不用刷新、不用点击）。
+//       熄灭之后，正常的指纹比对会把「真更新」的版块红点重新点亮。
+//       红点状态里没有版本号（旧版本代码留下的红点）同样按「不可信」处理 —— 只此一次。
+function _dotHeal(meta) {
+    var cloudFpv = (meta && meta._fpv !== undefined && meta._fpv !== null) ? String(meta._fpv) : '';
+    if (!cloudFpv) return;
+    var s = _dotLoad();
+    if (!s.keys || !s.keys.length) return;
+    var dotFpv = (s.fpv === undefined || s.fpv === null) ? '' : String(s.fpv);
+    if (dotFpv === cloudFpv) return;   // 红点就是当前口径算的 → 可信，保留（未读语义不变）
+    _dotState = { stamp: s.stamp || '', keys: [], cleared: [], fpv: cloudFpv };
     _dotPersist(); _dotRender();
 }
 // 点进版块 → 熄灭该版块红点
@@ -11482,6 +11524,10 @@ function updateImportStamp() {
                 var localStamp = localStorage.getItem('llm_data_exported_at_full') || '';
                 // 没有完整戳就回退到日期戳（兼容旧用户）
                 if (!localStamp) localStamp = (stamp || '').slice(0, 10);
+
+                // 红点自愈：指纹口径升级后，旧口径算出来的红点不可信 → 就地熄灭（不用点击、不用刷新）
+                try { _dotHeal(meta); } catch (e) { }
+
                 if (!localStamp) {
                     el.textContent = '⏬ 请点击此处从云端拉取最新数据';
                     el.classList.add('stale');
@@ -11489,36 +11535,31 @@ function updateImportStamp() {
                 }
                 var _ck = (cloudStamp && localStamp < cloudStamp) ? _fpChangedKeys(meta._fp) : null;
 
-                // 指纹「口径升级」过渡（2026-09-15：质检图片改为外置存储）：
-                // 只有质检那一项的指纹变了，但数据内容其实没变 →
-                // 静默对齐指纹与时间戳，不弹「📦 云端质检数据有更新」、也不亮红点。
-                if (cloudStamp && localStamp && localStamp < cloudStamp && _fpCanSilentSkip(meta, _ck)) {
-                    _fpAdopt(meta);
-                    try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
-                    try { _dotSync([], cloudStamp); } catch (e) { }
-                    el.textContent = '✅ 当前为最新数据';
-                    el.classList.remove('stale');
-                    return;
-                }
-
-                if (cloudStamp && localStamp < cloudStamp) {
-                    // 云端比本地新 → 有更新，尽量精确到具体版块
-                    var names = _fpChangedNames(meta._fp);
-                    _dotSync(_ck, cloudStamp);   // 对应版块标签亮红点
-                    if (names && names.length === 0) {
-                        // 各版块指纹完全一致 = 内容其实没变（管理员只是重新打包了一次）
-                        // 静默把本地时间戳对齐到云端，不给客服弹无意义的「有更新」
+                if (cloudStamp && localStamp && localStamp < cloudStamp) {
+                    // 云端比本地新 → 有更新，但要先把「口径升级造成的假差异」剔掉
+                    var _real = _fpRealKeys(meta, _ck);
+                    if (_real === null) {
+                        // 本地没有指纹记录（老用户）→ 无法判断是哪个版块，走通用提示，
+                        // 宁可多提示也不漏更新；红点无法判断，保持现状
+                        el.textContent = _fpMsg(null);
+                        el.classList.add('stale');
+                        return;
+                    }
+                    _dotSync(_real, cloudStamp, meta._fpv);   // 只给「真更新」的版块亮红点
+                    if (!_real.length) {
+                        // 没有任何真更新（内容没变 / 只是指纹口径变了）→ 静默对齐，不打扰客服
                         try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
                         _fpAdopt(meta);
                         el.textContent = '✅ 当前为最新数据';
                         el.classList.remove('stale');
                     } else {
-                        el.textContent = _fpMsg(names);
+                        el.textContent = _fpMsg(_real.map(function (k) { return LLM_FP_LABELS[k] || k; }));
                         el.classList.add('stale');
                     }
                 } else if (cloudStamp && localStamp >= cloudStamp) {
                     // 完全一致或本地更新（本地管理员刚 build 没同步）→ 最新
                     // 注意：这里不熄灭红点。红点是「未读」标记，按需求只在点进该版块时才消失
+                    //      （口径升级造成的误亮已由上面的 _dotHeal 处理掉了）
                     _fpAdopt(meta);   // 顺手记住云端版块指纹 + 指纹版本号，下次更新即可精确提示
                     el.textContent = '✅ 当前为最新数据';
                     el.classList.remove('stale');

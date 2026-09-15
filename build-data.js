@@ -270,16 +270,31 @@ const FP_MODULES = {
 // 指纹算法版本 FP_VERSION
 //   1 = 原始口径（质检图片以 base64 内嵌在 llm_qc_v1 里）
 //   2 = 质检图片改为外置存储后（llm_qc_v1 里只剩 {__m:id} 引用）
+//   3 = 把「图片存储形态」从指纹里彻底剥掉（见 fpCanon），只认业务内容
 // 图片存储形态一变，指纹必然变，但「数据内容」其实没变 →
 // 客服端会看到「质检有更新」的误报。带上版本号后，
 // 客服端发现版本号落后就静默对齐指纹，不再误报（仅此一次过渡）。
-const FP_VERSION = 2;
+const FP_VERSION = 3;
+
+// 把「图片的存储形态」从指纹输入里剥掉 —— 只保留「有几张图 + 每张图的宽高」这种真·内容信号。
+//   · 内嵌形态：data:image/png;base64,iVBORw0KG…  → data:image/__IMG__
+//   · 外置形态：{"__m":"a1b2c3d4e5f6a7b8","w":800,"h":600} → {"__m":"__IMG__","w":800,"h":600}
+// 这样「换压缩器 / 重新压缩 / base64 换成引用」都不会被当成内容更新；
+// 而「新增图片 / 删除图片 / 换成另一张尺寸不同的图」照样会改动占位符数量或宽高 → 正常提示。
+// 目的：红点只代表「真有新数据」，不会因为工程层面的图片管线调整而误亮。
+function fpCanon(s) {
+    if (typeof s !== 'string') return s;
+    if (s.indexOf('data:image/') < 0 && s.indexOf('"__m"') < 0) return s;
+    return s
+        .replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]*/g, 'data:image/__IMG__')
+        .replace(/"__m"\s*:\s*"[0-9a-fA-F]{4,}"/g, '"__m":"__IMG__"');
+}
 function fpOf(keys) {
     const parts = keys.map(function (k) {
         const v = dataJson[k];
         const s = (v === undefined || v === null) ? ''
             : (typeof v === 'string' ? v : JSON.stringify(v));
-        return k + '=' + s;
+        return k + '=' + fpCanon(s);
     });
     return crypto.createHash('sha256').update(parts.join('\n'), 'utf8').digest('hex').slice(0, 16);
 }
