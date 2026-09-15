@@ -873,18 +873,23 @@ header { position: relative; }
             position: relative;
             min-height: 80px;
             margin-bottom: 20px;
-            /* 气泡排列顺序（2026-09-15 定稿）：
-               最早的产品固定在「最后一排」（最左下角），之后按顺序往右排；
-               新加的产品追加到「最上面那一排」，上面排满了才往上再开一排。
-               实现 = 数据不反转（老的在前）+ flex 反向换行 wrap-reverse
-                      （第 1 行贴着容器底部，新行往上堆叠）。
-               效果：老气泡所在的排、以及左右顺序永远不变，客服靠位置记忆右键复制不会找错。
+            /* 气泡排列顺序（2026-09-15 二次定稿，用户已确认效果图）：
+               ① 起点在「右下角」：最老的第 1 款产品固定在最后一排的最右边；
+               ② 同一排里从右往左依次排（row-reverse），越往左越新；
+               ③ 一排排满了就往上新开一排（wrap-reverse），
+                  所以最新的产品落在最上面那一排的最左边；
+               ④ 没排满的那一排（只有最上面那排）左右居中显示（justify-content:center）。
+               实测（tmp_check/verify_bubbles.js）：
+                  最老=末排最右 ✅ / 最新=顶排最左 ✅ / 顶端留白左右对称 ✅
+                  新增产品时：只有最上面那排会横移（45~83px），
+                  下面排满的各排 0 位移 —— 老产品靠位置记忆右键复制不会找错。
                注意：最上面那排被填满、要往上新开一排时，整块会往下让出一行的高度
-                    （页面流式布局的必然），但气泡之间的相对位置不变。 */
+                    （页面流式布局的必然，与排列方式无关）。 */
             display: flex;
-            flex-wrap: wrap-reverse;
-            align-content: flex-start;
-            justify-content: flex-start;
+            flex-direction: row-reverse;   /* 主轴从右往左：老的在最右 */
+            flex-wrap: wrap-reverse;       /* 第一排贴底，新排往上堆 */
+            align-content: flex-start;     /* 反向轴下 flex-start = 从底部开始堆 */
+            justify-content: center;       /* 没排满的那排（最上面那排）左右居中 */
         }
 
         #results-container .product-display {
@@ -6421,14 +6426,17 @@ header::after {
             
             container.innerHTML = '';
             
-            // 按数据原始顺序渲染（新增产品只会追加到末尾），配合 CSS 的 wrap-reverse：
-            //   最早的产品固定在最后一排，新品往最上面那一排追加。
+            // 按数据原始顺序渲染（新增产品只会追加到末尾），配合 CSS 的
+            // row-reverse + wrap-reverse：
+            //   最老的产品固定在最后一排的最右边，同一排往左依次越来越新，
+            //   最新的产品落在最上面那一排的最左边。
             //
             // 改动说明（2026-09-15）：
             //   以前这里写了 [...appData.products].reverse()，把最新的产品插到最前面，
             //   于是每新增一个产品，所有老气泡都要整体往后挪一格 —— 客服想靠位置记忆
             //   右键复制根本记不住。
-            //   现在改成「只追加、不重排」+ 反向换行：老气泡的排与左右顺序永远不变。
+            //   现在改成「只追加、不重排」+ 反向主轴 + 反向换行，
+            //   实测新增产品时下面排满的各排 0 位移，老气泡位置永远不变。
             appData.products.forEach(product => {
                 const badge = document.createElement('div');
                 // 组合装使用金色背景
