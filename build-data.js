@@ -267,6 +267,13 @@ const FP_MODULES = {
     perf: ['llm_board_data', 'llm_board_data_history', 'llm_perf_rule'], // 数据看板 / 绩效规则
     qc: ['llm_qc_v1']                                                // 质检分析
 };
+// 指纹算法版本 FP_VERSION
+//   1 = 原始口径（质检图片以 base64 内嵌在 llm_qc_v1 里）
+//   2 = 质检图片改为外置存储后（llm_qc_v1 里只剩 {__m:id} 引用）
+// 图片存储形态一变，指纹必然变，但「数据内容」其实没变 →
+// 客服端会看到「质检有更新」的误报。带上版本号后，
+// 客服端发现版本号落后就静默对齐指纹，不再误报（仅此一次过渡）。
+const FP_VERSION = 2;
 function fpOf(keys) {
     const parts = keys.map(function (k) {
         const v = dataJson[k];
@@ -283,6 +290,7 @@ Object.keys(FP_MODULES).forEach(function (mod) { fp[mod] = fpOf(FP_MODULES[mod])
 const products = parseVal(dataJson.liuliumei_products) || [];
 const meta = {
     _exportedAt: exportedAt,
+    _fpv: FP_VERSION,   // 指纹算法版本：客服端据此静默跳过「指纹口径升级」的误报
     // 图片解密参数（salt 本身不是秘密，PBKDF2 的 salt 按设计就是公开的）
     _kdf: { salt: salt.toString('base64'), iter: 100000 },
     _media: { n: mediaWrite.files, bytes: mediaWrite.bytes, mode: mediaPack.mode },

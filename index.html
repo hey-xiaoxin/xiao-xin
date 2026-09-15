@@ -873,6 +873,18 @@ header { position: relative; }
             position: relative;
             min-height: 80px;
             margin-bottom: 20px;
+            /* 气泡排列顺序（2026-09-15 定稿）：
+               最早的产品固定在「最后一排」（最左下角），之后按顺序往右排；
+               新加的产品追加到「最上面那一排」，上面排满了才往上再开一排。
+               实现 = 数据不反转（老的在前）+ flex 反向换行 wrap-reverse
+                      （第 1 行贴着容器底部，新行往上堆叠）。
+               效果：老气泡所在的排、以及左右顺序永远不变，客服靠位置记忆右键复制不会找错。
+               注意：最上面那排被填满、要往上新开一排时，整块会往下让出一行的高度
+                    （页面流式布局的必然），但气泡之间的相对位置不变。 */
+            display: flex;
+            flex-wrap: wrap-reverse;
+            align-content: flex-start;
+            justify-content: flex-start;
         }
 
         #results-container .product-display {
@@ -4527,12 +4539,20 @@ header::after {
                                         var stampEl = document.getElementById('importStamp');
                                         if (!stampEl) return;
                                         if (!cloudStamp || !localStamp || cloudStamp <= localStamp) return;
+                                        var _ck = _fpChangedKeys(meta._fp);
+                                        // 指纹「口径升级」过渡（如质检图片改外置）→ 静默对齐，不打扰客服
+                                        if (_fpCanSilentSkip(meta, _ck)) {
+                                            _fpAdopt(meta);
+                                            try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
+                                            _dotSync([], cloudStamp);
+                                            return;
+                                        }
                                         var names = _fpChangedNames(meta._fp);
-                                        _dotSync(_fpChangedKeys(meta._fp), cloudStamp);   // 对应版块标签亮红点
+                                        _dotSync(_ck, cloudStamp);   // 对应版块标签亮红点
                                         if (names && names.length === 0) {
                                             // 内容没变（只是重新打包）→ 静默对齐时间戳，不打扰客服
                                             try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
-                                            _fpSave(meta._fp);
+                                            _fpAdopt(meta);
                                             return;
                                         }
                                         // 仅在用户当前看到「最新」时才提示，
@@ -4555,13 +4575,24 @@ header::after {
                 } catch (e) { }
             }
 
-            // 数据包导入后的自动重新登录（保持登录状态，直接回到数据管理页）
+            // 自动登录（两路）：
+            //   ① 数据包导入/同步后跳转过来的（sessionStorage.llm_relogin，用完即清）
+            //   ② 刷新 / 重开页面：24 小时内的登录状态直接从 localStorage 恢复
+            //      → 一天只需要登录一次（客服不用因为切走一会儿回来就重新输密码）
             try {
                 var relogin = sessionStorage.getItem('llm_relogin');
+                var _autoRole = null, _autoMsg = '';
                 if (relogin) {
                     sessionStorage.removeItem('llm_relogin');
+                    _autoRole = (relogin === 'admin');
+                    _autoMsg = '✅ 数据已更新，自动登录完成';
+                } else {
+                    var _ses = _sessionLoad();
+                    if (_ses) _autoRole = !!_ses.admin;
+                }
+                if (_autoRole !== null) {
                     appData.isLoggedIn = true;
-                    appData.isAdmin = (relogin === 'admin');
+                    appData.isAdmin = _autoRole;
                     applyRole();
                     ['search-tab','schedule-tab','calc-tab','board-tab','qc-tab','manage-tab'].forEach(function(id){var el=document.getElementById(id); if(el) el.classList.remove('disabled');});
                     var loginForm = document.getElementById('login-form');
@@ -4576,7 +4607,7 @@ header::after {
                         renderProductDisplay();
                     }
                     updateView();
-                    showNotification('✅ 数据已更新，自动登录完成');
+                    if (_autoMsg) showNotification(_autoMsg);
                 }
             } catch (e) { console.warn('自动重新登录失败:', e); }
         });
@@ -4748,6 +4779,40 @@ header::after {
             return ('0000000' + h1.toString(16)).slice(-8) + ('0000000' + h2.toString(16)).slice(-8);
         }
 
+        // ============== 登录状态保持（一天只需登录一次） ==============
+        // 背景：以前刷新页面 = 重新登录（唯一"自动登录"是同步数据后那一次跳转），
+        //       客服切走一会儿回来、或浏览器把标签页休眠后重载，就得重新输密码，
+        //       而在线版验证密码要先把数据包下下来，网速慢时又要等十几秒。
+        // 方案：登录成功时在 localStorage 记一条会话（到期时间 + 身份），
+        //       24 小时内刷新/重开页面都自动恢复登录，不用再输密码。
+        //       点「退出登录」会立刻清掉这条记录。
+        // 安全说明：密码本来就缓存在 localStorage（llm_pwd_cache）用于数据同步，
+        //       这条记录不额外暴露任何信息，只是把「已登录」这个状态也一起记住。
+        var LLM_SESSION_KEY = 'llm_session';
+        var LLM_SESSION_HOURS = 24;
+
+        function _sessionSave(isAdmin) {
+            try {
+                localStorage.setItem(LLM_SESSION_KEY, JSON.stringify({
+                    exp: Date.now() + LLM_SESSION_HOURS * 3600 * 1000,
+                    admin: !!isAdmin,
+                    at: Date.now()
+                }));
+            } catch (e) { }
+        }
+        function _sessionClear() {
+            try { localStorage.removeItem(LLM_SESSION_KEY); } catch (e) { }
+        }
+        // 有效则返回 {exp, admin, at}，否则返回 null（过期或没登录过）
+        function _sessionLoad() {
+            try {
+                var s = JSON.parse(localStorage.getItem(LLM_SESSION_KEY) || 'null');
+                if (!s || !s.exp) return null;
+                if (Date.now() > s.exp) { _sessionClear(); return null; }
+                return s;
+            } catch (e) { return null; }
+        }
+
         // 在线部署版：唯一校验方式是「尝试用密码解密 data.enc.json」
         // 本地版（file://）：哈希比对（源码不含明文密码）
         function login() {
@@ -4838,6 +4903,9 @@ header::after {
 
             // 把登录密码作为数据同步密码（同一个密码，省一次输入）
             try { localStorage.setItem('llm_pwd_cache', password); } catch (e) { }
+
+            // 记住登录状态：24 小时内刷新 / 重开页面自动恢复，不用重新输密码
+            _sessionSave(isAdmin);
 
             // 启用所有标签
             ['search-tab','schedule-tab','calc-tab','board-tab','qc-tab','manage-tab'].forEach(function(id){var el=document.getElementById(id); if(el) el.classList.remove('disabled');});
@@ -6346,10 +6414,15 @@ header::after {
             
             container.innerHTML = '';
             
-            // 获取产品并反转顺序（最新的在前面）
-            const reversedProducts = [...appData.products].reverse();
-            
-            reversedProducts.forEach(product => {
+            // 按数据原始顺序渲染（新增产品只会追加到末尾），配合 CSS 的 wrap-reverse：
+            //   最早的产品固定在最后一排，新品往最上面那一排追加。
+            //
+            // 改动说明（2026-09-15）：
+            //   以前这里写了 [...appData.products].reverse()，把最新的产品插到最前面，
+            //   于是每新增一个产品，所有老气泡都要整体往后挪一格 —— 客服想靠位置记忆
+            //   右键复制根本记不住。
+            //   现在改成「只追加、不重排」+ 反向换行：老气泡的排与左右顺序永远不变。
+            appData.products.forEach(product => {
                 const badge = document.createElement('div');
                 // 组合装使用金色背景
                 badge.className = `product-badge ${product.type === 'combo' ? 'combo' : ''}`;
@@ -6381,7 +6454,11 @@ header::after {
             
             if (container) {
                 if (searchTerm === '' && appData.activeFilters.length === 0) {
-                    container.style.display = 'block';
+                    // 注意：这里必须置空（而不是写死 'block'）。
+                    // 内联样式的优先级高于 CSS 类，写成 'block' 会把 .product-display
+                    // 上的 display:flex + flex-wrap:wrap-reverse 压掉，
+                    // 气泡就退回普通的「从上往下排」，新品一加老气泡全挪位。
+                    container.style.display = '';
                 } else {
                     container.style.display = 'none';
                 }
@@ -7708,6 +7785,7 @@ function applyRole() {
 function logout() {
     appData.isLoggedIn = false;
     appData.isAdmin = false;
+    _sessionClear();   // 主动退出 → 清掉登录保持，下次打开必须重新输密码
     ['search-tab', 'schedule-tab', 'calc-tab', 'board-tab', 'qc-tab', 'manage-tab'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.classList.add('disabled');
@@ -11241,6 +11319,48 @@ function _fpSave(fp) {
     if (!fp || typeof fp !== 'object') return;
     try { localStorage.setItem(LLM_FP_KEY, JSON.stringify(fp)); } catch (e) { }
 }
+
+// ============== 指纹算法版本（消除「口径升级」造成的误报） ==============
+// 指纹是「模块内容」的哈希，但它同时也把「内容的存储形态」算了进去。
+// 2026-09-15 质检图片从内嵌 base64 改成外置存储（llm_qc_v1 里只剩引用），
+// 数据一字未改，指纹却必然变了 → 客服端把所有版块都比一遍，看到 qc 变了，
+// 就弹「📦 云端质检数据有更新」并亮红点 —— 这是误报。
+//
+// 处理：云端 data.meta.json 带 _fpv（当前 2）。客服端把同步过的版本号记在本地，
+//       一旦发现云端版本号更高，且「除了质检以外其它版块都没变」，
+//       就静默把本地指纹/时间戳对齐云端（不弹提示、不亮红点），并记下新版本号。
+//       只影响这一次过渡；之后质检真更新了照样正常提示。
+var LLM_FPV_KEY = 'llm_data_fpv';
+function _fpvLoad() {
+    try { return localStorage.getItem(LLM_FPV_KEY) || ''; } catch (e) { return ''; }
+}
+function _fpvSave(v) {
+    if (v === undefined || v === null || v === '') return;
+    try { localStorage.setItem(LLM_FPV_KEY, String(v)); } catch (e) { }
+}
+// 记住「云端指纹 + 指纹版本号」（凡是把云端指纹对齐到本地的地方都该调这个）
+function _fpAdopt(meta) {
+    if (!meta || typeof meta !== 'object') return;
+    _fpSave(meta._fp);
+    _fpvSave(meta._fpv);
+}
+// 云端指纹版本号与本地记录的不一致（本地没有记录也算不一致 → 一次性过渡）
+function _fpvUpgraded(meta) {
+    if (!meta || meta._fpv === undefined || meta._fpv === null) return false;
+    return String(_fpvLoad()) !== String(meta._fpv);
+}
+// 本次差异是否可以静默跳过：
+//   ① 云端带了新的指纹版本号（口径升级）
+//   ② 变化的版块只有「质检」一项
+//   ③ 本地确实有指纹记录（= 这个客服在带指纹的版本里同步过，有真实数据；
+//      老客服/新用户没有记录 → 走正常提示，宁可多提示也不漏更新）
+function _fpCanSilentSkip(meta, changedKeys) {
+    if (!_fpvUpgraded(meta)) return false;
+    if (!changedKeys || changedKeys.length !== 1 || changedKeys[0] !== 'qc') return false;
+    var localFp = _fpLoad();
+    if (!localFp || !localFp.qc) return false;
+    return true;
+}
 // 返回变化的版块英文 key 数组；
 //   []    = 各版块指纹完全一致（内容其实没变，只是重新打包了一次）
 //   null  = 本地没有指纹记录（老版本同步过），无法判断具体版块
@@ -11367,15 +11487,29 @@ function updateImportStamp() {
                     el.classList.add('stale');
                     return;
                 }
+                var _ck = (cloudStamp && localStamp < cloudStamp) ? _fpChangedKeys(meta._fp) : null;
+
+                // 指纹「口径升级」过渡（2026-09-15：质检图片改为外置存储）：
+                // 只有质检那一项的指纹变了，但数据内容其实没变 →
+                // 静默对齐指纹与时间戳，不弹「📦 云端质检数据有更新」、也不亮红点。
+                if (cloudStamp && localStamp && localStamp < cloudStamp && _fpCanSilentSkip(meta, _ck)) {
+                    _fpAdopt(meta);
+                    try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
+                    try { _dotSync([], cloudStamp); } catch (e) { }
+                    el.textContent = '✅ 当前为最新数据';
+                    el.classList.remove('stale');
+                    return;
+                }
+
                 if (cloudStamp && localStamp < cloudStamp) {
                     // 云端比本地新 → 有更新，尽量精确到具体版块
                     var names = _fpChangedNames(meta._fp);
-                    _dotSync(_fpChangedKeys(meta._fp), cloudStamp);   // 对应版块标签亮红点
+                    _dotSync(_ck, cloudStamp);   // 对应版块标签亮红点
                     if (names && names.length === 0) {
                         // 各版块指纹完全一致 = 内容其实没变（管理员只是重新打包了一次）
                         // 静默把本地时间戳对齐到云端，不给客服弹无意义的「有更新」
                         try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
-                        _fpSave(meta._fp);
+                        _fpAdopt(meta);
                         el.textContent = '✅ 当前为最新数据';
                         el.classList.remove('stale');
                     } else {
@@ -11385,7 +11519,7 @@ function updateImportStamp() {
                 } else if (cloudStamp && localStamp >= cloudStamp) {
                     // 完全一致或本地更新（本地管理员刚 build 没同步）→ 最新
                     // 注意：这里不熄灭红点。红点是「未读」标记，按需求只在点进该版块时才消失
-                    _fpSave(meta._fp);   // 顺手记住云端版块指纹，下次更新即可精确提示
+                    _fpAdopt(meta);   // 顺手记住云端版块指纹 + 指纹版本号，下次更新即可精确提示
                     el.textContent = '✅ 当前为最新数据';
                     el.classList.remove('stale');
                 } else {
