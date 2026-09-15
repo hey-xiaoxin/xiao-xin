@@ -11487,11 +11487,135 @@ async function _decryptPayload(password, payload) {
     var tag = _b64ToBytes(payload.tag);
     var data = _b64ToBytes(payload.data);
     var key = await _deriveKey(password, salt, payload.iter || 100000);
+    _mediaAesKey = key;   // 质检外置图片复用这把钥匙，省一次 PBKDF2
     var combined = _concatBytes(data, tag);
     var plain = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: iv, tagLength: tag.length * 8 },
         key, combined);
     return JSON.parse(new TextDecoder().decode(plain));
+}
+
+// ============== 质检图片：外置密文的按需加载 ==============
+// 打包时图片已从主包搬出（主包 media 里只留 {__m:id,w,h} 引用），
+// 每张图独立加密存 media/<id>.enc，文件名 = 图片内容的 sha256 前 16 位。
+// 「内容不变 → 文件名不变 → 永久命中缓存」，所以日常做加法时只会下新增的那几张。
+//
+// 两种格式都支持（向后兼容）：
+//   字符串  → 内嵌 base64（本地导入 Excel 的场景）→ 直接当 src
+//   {__m}   → 外置引用 → 查本地缓存，没有才按需下载解密
+var _MEDIA_URL = {};       // id -> blobURL（按内容寻址的会话缓存，_mediaLoad 内部用）
+var _MEDIA_RT = {};        // mediaKey -> blobURL（渲染层查这个，由 qcHydrateMedia 填）
+var _MEDIA_PEND = {};      // id -> Promise（同一张图并发只下一次）
+var _mediaAesKey = null;   // 复用主包解密用的 CryptoKey
+var _mediaKdfP = null;
+var _MEDIA_DB = 'llm_media_v1';
+
+function _mediaIdOf(v) {
+    return (v && typeof v === 'object' && v.__m) ? String(v.__m) : '';
+}
+
+function _idbOpen() {
+    return new Promise(function (res, rej) {
+        if (!self.indexedDB) { rej(new Error('此环境无 IndexedDB')); return; }
+        var req = indexedDB.open(_MEDIA_DB, 1);
+        req.onupgradeneeded = function () {
+            var db = req.result;
+            if (!db.objectStoreNames.contains('img')) db.createObjectStore('img');
+        };
+        req.onsuccess = function () { res(req.result); };
+        req.onerror = function () { rej(req.error || new Error('IndexedDB 打开失败')); };
+    });
+}
+function _idbGet(id) {
+    return _idbOpen().then(function (db) {
+        return new Promise(function (res) {
+            try {
+                var t = db.transaction('img', 'readonly').objectStore('img').get(id);
+                t.onsuccess = function () { res(t.result || null); };
+                t.onerror = function () { res(null); };
+            } catch (e) { res(null); }
+        });
+    }).catch(function () { return null; });
+}
+function _idbPut(id, data) {
+    _idbOpen().then(function (db) {
+        try { db.transaction('img', 'readwrite').objectStore('img').put(data, id); } catch (e) { }
+    }).catch(function () { });
+}
+
+// 图片解密用的是主包那把钥匙（登录/同步时已派生过）。没有就现场派生一次。
+function _mediaKey() {
+    if (_mediaAesKey) return Promise.resolve(_mediaAesKey);
+    if (!_mediaKdfP) {
+        _mediaKdfP = fetch('./data.meta.json?t=' + Date.now(), { cache: 'no-store' })
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (m) {
+                var kdf = m && m._kdf;
+                if (!kdf || !kdf.salt) throw new Error('云端缺少密钥参数');
+                var pwd = null;
+                try { pwd = localStorage.getItem('llm_pwd_cache'); } catch (e) { }
+                if (!pwd) throw new Error('本地没有密码，请先用密码登录一次');
+                return _deriveKey(pwd, _b64ToBytes(kdf.salt), kdf.iter || 100000);
+            }).catch(function (e) { _mediaKdfP = null; throw e; });
+    }
+    return _mediaKdfP.then(function (k) { _mediaAesKey = k; return k; });
+}
+
+// 取一张外置图：内存 → IndexedDB → 下载并解密。返回 blob URL。
+function _mediaLoad(id) {
+    if (_MEDIA_URL[id]) return Promise.resolve(_MEDIA_URL[id]);
+    if (_MEDIA_PEND[id]) return _MEDIA_PEND[id];
+    var p = _idbGet(id).then(function (cached) {
+        if (cached) return cached;
+        return fetch('./media/' + id + '.enc', { cache: 'default' })
+            .then(function (r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            }).then(function (pl) {
+                return _mediaKey().then(function (key) {
+                    var iv = _b64ToBytes(pl.iv), tag = _b64ToBytes(pl.tag), dt = _b64ToBytes(pl.data);
+                    return crypto.subtle.decrypt(
+                        { name: 'AES-GCM', iv: iv, tagLength: tag.length * 8 },
+                        key, _concatBytes(dt, tag));
+                });
+            }).then(function (plain) {
+                var u8 = new Uint8Array(plain);
+                _idbPut(id, u8);
+                return u8;
+            });
+    }).then(function (buf) {
+        var url = URL.createObjectURL(new Blob([buf], { type: 'image/png' }));
+        _MEDIA_URL[id] = url;
+        delete _MEDIA_PEND[id];
+        return url;
+    }).catch(function (e) { delete _MEDIA_PEND[id]; throw e; });
+    _MEDIA_PEND[id] = p;
+    return p;
+}
+
+// 扫描 QC_DATA.media，把尚未就绪的外置图拉下来；全部就绪后重渲染一次
+var _mediaHydrating = null;
+function qcHydrateMedia() {
+    if (_mediaHydrating) return _mediaHydrating;
+    var media = (typeof QC_DATA !== 'undefined' && QC_DATA && QC_DATA.media) || {};
+    var todo = [];
+    Object.keys(media).forEach(function (k) {
+        var id = _mediaIdOf(media[k]);
+        if (id && !_MEDIA_RT[k]) {
+            if (_MEDIA_URL[id]) _MEDIA_RT[k] = _MEDIA_URL[id];   // 本次会话已加载过，直接挂上
+            else todo.push({ k: k, id: id });
+        }
+    });
+    if (!todo.length) return Promise.resolve();
+    _mediaHydrating = Promise.all(todo.map(function (it) {
+        return _mediaLoad(it.id)
+            .then(function (url) { _MEDIA_RT[it.k] = url; })
+            .catch(function (e) { console.warn('[media] 图片加载失败 ' + it.id + '：' + (e && e.message || e)); });
+    })).then(function () {
+        _mediaHydrating = null;
+        try { if (document.getElementById('qcList')) qcRenderAll(); } catch (e) { }
+    });
+    return _mediaHydrating;
 }
 
 // 弹窗输入密码（首次使用）
@@ -11911,6 +12035,7 @@ function qcClearStored() {
 
 /* ---------- 渲染 ---------- */
 function qcRenderAll() {
+    qcHydrateMedia();   // 外置图片：把没在本地缓存里的按需拉下来（异步，就绪后自动重渲染）
     qcRenderFilter();   // 先归一化筛选值（无效值会被重置为「全部」），再渲染统计/列表/排名
     qcRenderStats();
     qcRenderList();
@@ -12182,7 +12307,11 @@ function qcImageUrls(imagesField) {
         var candidates = ['xl/media/' + name, 'xl/media/' + p];
         var url = '';
         for (var i = 0; i < candidates.length; i++) {
-            if (QC_DATA.media && QC_DATA.media[candidates[i]]) { url = QC_DATA.media[candidates[i]]; break; }
+            var raw = QC_DATA.media && QC_DATA.media[candidates[i]];
+            if (raw === undefined || raw === null || raw === '') continue;
+            if (typeof raw === 'string') { url = raw; break; }                        // 内嵌 base64（本地导入 Excel）
+            if (_MEDIA_RT[candidates[i]]) { url = _MEDIA_RT[candidates[i]]; break; }   // 外置图已缓存/已解密
+            // 外置图还没就绪 → 本轮先不出图；qcHydrateMedia 拉完会自动重渲染
         }
         if (!url && /^(https?:|data:)/.test(p)) url = p;
         if (url) urls.push(url);

@@ -1,5 +1,7 @@
 # Sensitive data - NEVER commit
 data.json
+# 图片外部化时的明文中间产物（含客户聊天截图）—— 加密后才会写进 media/
+media_tmp/
 node_modules/
 
 # Local helper scripts (may contain secrets / machine-specific paths) - NEVER commit
