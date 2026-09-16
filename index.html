@@ -4560,7 +4560,8 @@ header::after {
                                         // 剔除「指纹口径升级」造成的假差异（如质检图片换存储形态），只提示真更新
                                         var realKeys = _fpRealKeys(meta, _ck);
                                         var names = realKeys.map(function (k) { return LLM_FP_LABELS[k] || k; });
-                                        _dotSync(realKeys, cloudStamp, meta._fpv);   // 只给真更新的版块亮红点
+                                        // 红点不在这里亮（方案 A：数据真正下载到本地之后才亮）。
+                                        // 这里只负责顶部胶囊文案 + 桌面通知；具体去哪看，由同步完成的红点告知。
                                         if (!names.length) {
                                             // 内容没变（只是重新打包 / 口径变了）→ 静默对齐时间戳，不打扰客服
                                             try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
@@ -7452,6 +7453,9 @@ function importFullData(e) {
   if (!file) return;
   var nameEl = document.getElementById('full-import-name');
   if (nameEl) nameEl.textContent = '已选择：' + file.name;
+  // 红点（方案 A）：导入前先记下「本地原本有没有数据包」（首次导入不亮红点）
+  var _hadLocalPacket = false;
+  try { _hadLocalPacket = !!localStorage.getItem('llm_data_exported_at_full'); } catch (err) { }
   // 从文件名「工作台数据包_2026-09-09.json」里抽日期，作为「数据包自带日期」
   // 用于顶部胶囊 vs 当天日期比对：跨天打开也会提示用户更新
   // 修复（2026-09-10）：同时写完整时间戳（用当天 23:59:59 作为上限）给轮询用
@@ -7496,10 +7500,16 @@ function importFullData(e) {
 
     if (!confirm('即将导入数据包：\n' + summary.join('，\n') + '\n\n这会覆盖本机的同名数据（自己做过而数据包里没有的模块不受影响），导入后页面自动刷新。确定继续吗？')) return;
 
+    // 红点（方案 A）：先算这次真变了的版块，写完本地后再点亮
+    var _changedKeys = [];
+    try { _changedKeys = _hadLocalPacket ? _fpLocalDiff(data) : []; } catch (err) { _changedKeys = []; }
     var applied = 0;
     FULL_DATA_KEYS.forEach(function (k) {
       if (data[k] !== undefined) { localStorage.setItem(k, data[k]); applied++; }
     });
+    try {
+      if (applied > 0) _dotCommitSync(_changedKeys, localStorage.getItem('llm_data_exported_at_full') || '');
+    } catch (err) { }
     // 记住当前登录身份，刷新后自动重新登录（sessionStorage 仅本次会话有效）
     try { sessionStorage.setItem('llm_relogin', appData.isAdmin ? 'admin' : 'user'); } catch (err) {}
     showNotification('✅ 已导入 ' + applied + ' 项数据，页面即将刷新…');
@@ -11418,10 +11428,80 @@ function _fpNotice(names) {
     return '云端' + names.join('、') + '数据已更新，请点击顶部胶囊同步';
 }
 
+// ============== 本地口径：把「即将同步进来的新数据」与「本地现值」逐模块比对 ==============
+// 与 build-data.js 的 FP_MODULES / fpCanon 必须保持一致：同一次更新，两侧算出来的
+// 「哪些版块变了」必须相同，否则会出现「云端说没变、本地说变了」的打架。
+var LLM_FP_MODULES = {
+    product: ['liuliumei_products', 'liuliumei_tags'],                  // 产品资料 + 标签
+    schedule: ['schedAppV2'],                                           // 智能班表
+    perf: ['llm_board_data', 'llm_board_data_history', 'llm_perf_rule'], // 数据看板 / 绩效规则
+    qc: ['llm_qc_v1']                                                   // 质检分析
+};
+// 把「图片的存储形态」剥离掉再比对（与 build-data.js fpCanon 一字不差）：
+// 换压缩器 / base64 改外置引用 → 不算内容变化；加减图片、换尺寸 → 算内容变化。
+function _fpCanon(s) {
+    if (typeof s !== 'string') return s;
+    if (s.indexOf('data:image/') < 0 && s.indexOf('"__m"') < 0) return s;
+    return s
+        .replace(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]*/g, 'data:image/__IMG__')
+        .replace(/"__m"\s*:\s*"[0-9a-fA-F]{4,}"/g, '"__m":"__IMG__"');
+}
+function _fpStr(v) {
+    if (v === undefined || v === null) return '';
+    return typeof v === 'string' ? v : JSON.stringify(v);
+}
+function _fpNormVal(v) {
+    return _fpCanon(_fpStr(v));
+}
+// 「更松」的口径：把图片载荷一律压成同一个占位符（保留图片所在的路径键 → 张数变化仍能发现），
+// 只用于质检模块的「存储形态过渡」兜底（见 _fpLocalDiff 的说明）。
+function _fpCanonLoose(s) {
+    return _fpCanon(s)
+        .replace(/\{"__m":"__IMG__"(?:,[^}]*)?\}/g, '"__IMG__"')
+        .replace(/"data:image\/__IMG__"/g, '"__IMG__"');
+}
+// 即将写入的新数据包 vs 本地现值 → 返回「内容真的变了」的版块 key 数组
+//   · 新包里没有的模块 → 不动本地数据，也不算变化（与 syncFromCloud 的写入规则一致）
+//   · 返回 []  → 内容其实没变（管理员只是重新打包了一次）
+//   · 质检额外走一次「松口径」兜底：老版本把截图 base64 内嵌在 llm_qc_v1 里，
+//     新版本改成外置引用（{__m:id,w,h}）。这属于工程层面的存储形态变化、数据内容没变，
+//     不该给客服亮一个「点进去毫无变化」的红点。松口径下图片一律折成占位符，
+//     只比「有几张图 + 图以外的内容」，所以加图减图照样会被发现。
+function _fpLocalDiff(newData) {
+    if (!newData || typeof newData !== 'object') return [];
+    var out = [];
+    Object.keys(LLM_FP_MODULES).forEach(function (mod) {
+        var keys = LLM_FP_MODULES[mod], changed = false;
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            if (newData[k] === undefined) continue;
+            var newV = _fpStr(newData[k]), oldV = _fpStr(localStorage.getItem(k));
+            if (_fpCanon(newV) === _fpCanon(oldV)) continue;
+            if (mod === 'qc' && _fpCanonLoose(newV) === _fpCanonLoose(oldV)) continue;
+            changed = true;
+            break;
+        }
+        if (changed) out.push(mod);
+    });
+    return out;
+}
+
 // ============== 版块更新红点 ==============
-// 云端哪个版块有更新，就在对应标签右上角亮一个红点；
-// 点进该版块（切换标签）红点才消失；管理员下一次发布新数据（时间戳变化）时红点重新出现。
-// 「已点掉」记录按云端时间戳分组存在 localStorage，刷新页面不会把已点掉的红点又亮回来。
+// 红点语义（2026-09-15 定稿，方案 A）：
+//   红点 = 「这个版块有【已经下载到本地】、但【还没点开看过】的新数据」。
+//   亮 —— 只在数据真正落地到本地的那一刻（syncFromCloud / importFullData 写完 localStorage 后），
+//         且只点亮「内容真的变了」的版块（_fpLocalDiff 逐模块比对，图片编码调整不算）。
+//   熄 —— 点进该版块时熄灭。只有「点进去真能看到新数据」的红点才存在，所以红点永不落空。
+//
+// 为什么不在「检测到云端有新版本」时就亮？（这是 09-15 修掉的老问题）
+//   那一刻本地数据还是旧的，点进去看到的还是老数据 —— 红点点进去却空无一物，
+//   客服就会认定红点不靠谱，下次真更新也懒得点。
+//   云端有更新的提醒由顶部胶囊负责（「📦 云端绩效数据有更新，请点击此处同步！」），
+//   胶囊本来就写明是哪个版块，所以不在同步前亮红点也不丢信息。
+//
+// 状态存在 localStorage.llm_data_dots，刷新页面不会丢：
+//   { stamp: 数据包版本, keys: [亮红点的版块], cleared: [已看过的], fpv: 口径版本号, src: 'sync' }
+// 「已点掉」的记录与 keys 一起存，所以刷新不会把看过又亮回来。
 // 注意：本模块可能在文件位置更靠前的地方被调用（updateImportStamp 的 fetch 回调），
 //      所以状态与映射表都做成「调用时惰性求值」，不依赖模块级变量已完成赋值。
 var _dotState = null;
@@ -11452,19 +11532,23 @@ function _dotRender() {
         else tab.classList.remove('has-dot');
     });
 }
-// 由「云端指纹比对」结果驱动：keys = 变化版块 key 数组，stamp = 云端时间戳，
-// fpv = 这次判定用的「指纹算法版本号」（记下来，供下次口径升级时判断红点是否可信）
-//   keys === null  → 无法判断具体版块（老用户首次），保持现状
-//   keys === []    → 没有任何版块变化 → 红点全部熄灭
-function _dotSync(keys, stamp, fpv) {
-    if (keys === null || typeof keys === 'undefined') return;
+// 数据落地后调用（由 syncFromCloud / importFullData 触发）：
+//   changedKeys = 本次同步里「内容真的变了」的版块（_fpLocalDiff 的结果）
+//   stamp       = 刚写进本地的数据包版本号
+// 已经在亮、且还没点开看过的红点会保留 —— 客服没看过的「新数据」不会因为一次同步被抹掉。
+function _dotCommitSync(changedKeys, stamp) {
     var s = _dotLoad();
-    if (!keys.length) { _dotState = {}; _dotPersist(); _dotRender(); return; }
-    if (s.stamp !== (stamp || '')) _dotState = { stamp: stamp || '', cleared: [] };
-    s = _dotLoad();
-    s.keys = keys;
-    if (!s.cleared) s.cleared = [];
-    if (fpv !== undefined && fpv !== null && fpv !== '') s.fpv = String(fpv);
+    var unread = (s.keys || []).filter(function (k) { return (s.cleared || []).indexOf(k) < 0; });
+    var merged = unread.slice();
+    (changedKeys || []).forEach(function (k) { if (merged.indexOf(k) < 0) merged.push(k); });
+    _dotState = {
+        stamp: stamp || '',
+        keys: merged,
+        cleared: [],
+        fpv: _fpvLoad(),
+        // 来源标记：'sync' = 内容是逐模块比对出来的，与指纹口径无关 → 永远可信，不参与自愈清理
+        src: 'sync'
+    };
     _dotPersist(); _dotRender();
 }
 
@@ -11483,6 +11567,8 @@ function _dotHeal(meta) {
     if (!cloudFpv) return;
     var s = _dotLoad();
     if (!s.keys || !s.keys.length) return;
+    // 内容比对（_dotCommitSync）算出来的红点与指纹口径无关 → 一定可信，不清理
+    if (s.src === 'sync') return;
     var dotFpv = (s.fpv === undefined || s.fpv === null) ? '' : String(s.fpv);
     if (dotFpv === cloudFpv) return;   // 红点就是当前口径算的 → 可信，保留（未读语义不变）
     _dotState = { stamp: s.stamp || '', keys: [], cleared: [], fpv: cloudFpv };
@@ -11554,7 +11640,8 @@ function updateImportStamp() {
                         el.classList.add('stale');
                         return;
                     }
-                    _dotSync(_real, cloudStamp, meta._fpv);   // 只给「真更新」的版块亮红点
+                    // 红点不在这里亮（方案 A：数据真正下载到本地之后才亮），
+                    // 这里只负责胶囊文案；真正的红点由 syncFromCloud 落地后 _dotCommitSync 点亮。
                     if (!_real.length) {
                         // 没有任何真更新（内容没变 / 只是指纹口径变了）→ 静默对齐，不打扰客服
                         try { localStorage.setItem('llm_data_exported_at_full', cloudStamp); } catch (e) { }
@@ -11567,8 +11654,8 @@ function updateImportStamp() {
                     }
                 } else if (cloudStamp && localStamp >= cloudStamp) {
                     // 完全一致或本地更新（本地管理员刚 build 没同步）→ 最新
-                    // 注意：这里不熄灭红点。红点是「未读」标记，按需求只在点进该版块时才消失
-                    //      （口径升级造成的误亮已由上面的 _dotHeal 处理掉了）
+                    // 注意：这里不熄灭红点。红点 =「已下载但没点开看的新数据」，
+                    //      只在点进该版块时熄灭（未读语义）；口径升级造成的误亮由 _dotHeal 清理。
                     _fpAdopt(meta);   // 顺手记住云端版块指纹 + 指纹版本号，下次更新即可精确提示
                     el.textContent = '✅ 当前为最新数据';
                     el.classList.remove('stale');
@@ -11859,6 +11946,11 @@ function syncFromCloud(ev) {
         });
     }).then(function (data) {
         if (!data || typeof data !== 'object') throw new Error('数据格式错误');
+        // 红点（方案 A）：先算「本地此前有没有数据包」+「这次真变了的版块」，
+        // 等数据写进 localStorage 之后再点亮 —— 红点只代表「已下载、未查看」。
+        var hadLocalPacket = false, changedKeys = [];
+        try { hadLocalPacket = !!localStorage.getItem('llm_data_exported_at_full'); } catch (e) { }
+        try { changedKeys = hadLocalPacket ? _fpLocalDiff(data) : []; } catch (e) { changedKeys = []; }
         var applied = 0;
         FULL_DATA_KEYS.forEach(function (k) {
             if (data[k] !== undefined) { localStorage.setItem(k, data[k]); applied++; }
@@ -11878,6 +11970,9 @@ function syncFromCloud(ev) {
                 }
             } catch (e) { }
         }
+        // 数据已落地本地 → 点亮「真变了的版块」的红点。
+        // 首次安装（本地原本没有数据包）不亮：那是「全部都是新的」，不是「某版块有更新」。
+        try { if (applied > 0) _dotCommitSync(changedKeys, data._exportedAt || ''); } catch (e) { }
         try {
             // 修复（2026-09-10）：只有已登录的用户才触发「同步后自动重新登录」
             // 之前未登录点胶囊：缓存的密码解密成功 → llm_relogin → reload 自动登录
