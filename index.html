@@ -10322,7 +10322,10 @@ var DEFAULT_RULE = {
     satPlat: { '天猫旗舰店': 9, '抖音旗舰店': 9, '抖音梅冻店': 9, '抖音西梅店': 9, '京东旗舰店': 5, '京东自营店': 5, '快手旗舰店': 4 },
     convLadder: [[0.60, 1.0], [0.50, 0.9], [0.40, 0.8], [0.30, 0.7], [0.25, 0.6], [0, 0]],
     redline: { satMin: 0.90, respMax: 30, convMin: 0.30 },
-    asScore: { refund: 0.3, return: 0.5, review: 0.1 }
+    asScore: { refund: 0.3, return: 0.5, review: 0.1 },
+    /* 质检扣分 → 绩效加减分：按本期质检扣分「合计」落档，取第一个满足的档位（从高到低）
+       0 分 → 0 分；1~5 分 → -1 分；6~15 分 → -3 分；>15 分（即 16 分起）→ -5 分 */
+    qcLadder: [[16, -5], [6, -3], [1, -1], [0, 0]]
 };
 var perfRule = null;
 
@@ -10332,6 +10335,9 @@ function loadRule() {
         perfRule = raw ? JSON.parse(raw) : JSON.parse(JSON.stringify(DEFAULT_RULE));
     } catch (e) { perfRule = JSON.parse(JSON.stringify(DEFAULT_RULE)); }
     if (!perfRule || typeof perfRule.satWeight !== 'number') perfRule = JSON.parse(JSON.stringify(DEFAULT_RULE));
+    // 旧规则（2026-09-20 之前保存的）没有「质检扣分档位」→ 补默认值。
+    // 只在内存生效、不写回 localStorage，避免动到用户已保存的规则。
+    if (!perfRule.qcLadder || !perfRule.qcLadder.length) perfRule.qcLadder = JSON.parse(JSON.stringify(DEFAULT_RULE.qcLadder));
     return perfRule;
 }
 function savePerfRule() {
@@ -10690,11 +10696,101 @@ function rankBadge(i) {
     return i;
 }
 
+/* ---------- 2.9 质检扣分 → 绩效加减分 ---------- */
+/* 数据源：质检中心（llm_qc_v1.rows），按「花名」归属，按绩效看板当前期（BOARD_MONTH）汇总。
+   口径：0 分→0；1~5 分→-1；6~15 分→-3；>15 分→-5（档位取自 perfRule.qcLadder，可调）。
+   注意：只吃质检的「原始数据」，不受质检模块当前筛选状态影响 —— 否则绩效会随
+   质检页选中的日期漂移（质检默认只筛最新一天）。 */
+function qcDeductSourceRows() {
+    var rows = null;
+    // 优先用内存里的质检数据（用户可能在本次会话里刚导入过）
+    try {
+        if (typeof QC_DATA !== 'undefined' && QC_DATA && QC_DATA.rows && QC_DATA.rows.length) rows = QC_DATA.rows;
+    } catch (e) { }
+    if (!rows) {
+        try {
+            var raw = localStorage.getItem('llm_qc_v1');
+            if (raw) { var j = JSON.parse(raw); rows = (j && j.rows) || []; }
+        } catch (e) { rows = []; }
+    }
+    return rows || [];
+}
+/* 质检日期 → 期数：'2026-09-09' → '2026-09'；仅月日的 '09-09' → '-09'（无从得知年份） */
+function qcPeriodOfDate(d) {
+    var s = String(d || '').trim();
+    var full = /^(\d{4})-(\d{2})-\d{2}/.exec(s);
+    if (full) return full[1] + '-' + full[2];
+    var md = /^(\d{2})-\d{2}/.exec(s);
+    if (md) return '-' + md[1];
+    return '';
+}
+function qcDateInPeriod(d, period) {
+    if (!period || period === '__all') return true;    // 看板选「全部月份」→ 质检也全算
+    var p = qcPeriodOfDate(d);
+    if (!p) return false;
+    if (p.charAt(0) === '-') return p === '-' + String(period).slice(5, 7);  // 只知月日 → 比月份
+    return p === period;
+}
+/* 按花名汇总本期质检扣分：{ nick: { total, rows:[…] } } */
+function qcDeductByNick(period) {
+    var out = {};
+    var real2nick = {};
+    try {
+        (BOARD_DATA.staff || []).forEach(function (s) { if (s && s.real && s.nick) real2nick[s.real] = s.nick; });
+    } catch (e) { }
+    qcDeductSourceRows().forEach(function (r) {
+        if (!r) return;
+        if (!qcDateInPeriod(r.date, period)) return;
+        var nick = String(r.who || '').trim();
+        if (!nick) return;
+        if (real2nick[nick]) nick = real2nick[nick];     // 质检表里写的是真名也能对上
+        var d = parseFloat(r.deduct);
+        if (isNaN(d)) d = 0;
+        if (!out[nick]) out[nick] = { total: 0, rows: [] };
+        out[nick].total += d;
+        out[nick].rows.push({
+            date: r.date || '', item: r.item || '', content: r.content || '',
+            detail: r.detail || '', deduct: d
+        });
+    });
+    Object.keys(out).forEach(function (k) {
+        out[k].rows.sort(function (a, b) { return String(a.date) < String(b.date) ? -1 : 1; });
+    });
+    return out;
+}
+/* 扣分合计 → 绩效加减分：从高到低取第一个满足的档位 */
+function qcPenaltyOf(total, ladder) {
+    var L = ladder || (perfRule && perfRule.qcLadder) || [];
+    for (var i = 0; i < L.length; i++) {
+        if (total >= L[i][0]) return L[i][1];
+    }
+    return 0;
+}
+/* 档位的中文描述（从 perfRule.qcLadder 实时推导，改了档位描述自动跟着变） */
+function qcLadderDesc() {
+    var L = ((perfRule && perfRule.qcLadder) || []).slice().sort(function (a, b) { return a[0] - b[0]; });
+    var parts = [];
+    for (var i = 0; i < L.length; i++) {
+        var lo = L[i][0], hi = (i + 1 < L.length) ? (L[i + 1][0] - 1) : null;
+        var range = (hi === null) ? (lo + ' 分以上') : (lo === hi ? (lo + ' 分') : (lo + '~' + hi + ' 分'));
+        parts.push(range + '→' + L[i][1]);
+    }
+    return parts.join('；');
+}
+/* 质检分数显示：整数不拖小数（11 而非 11.0），有小数才保留 1 位 */
+function qcNum(v) {
+    var n = parseFloat(v);
+    if (isNaN(n)) return '0';
+    return (Math.abs(n - Math.round(n)) < 1e-9) ? String(Math.round(n)) : fmtNum(n, 1);
+}
+
 /* ---------- 3. 绩效看板 ---------- */
 function boardPerf() {
     var rows = boardRows(BOARD_DATA.service || []);
     var byNick = {};
     rows.forEach(function (r) { (byNick[r.nick] = byNick[r.nick] || []).push(r); });
+    // 本期质检扣分（按花名汇总），用于每人的「质检扣分」档位
+    var qcMap = qcDeductByNick(BOARD_MONTH);
     // 平台内排名（按满意率降序）—— 用于 (2)/(3)/(4) 档位
     var platRank = {};
     var platGroups = {};
@@ -10782,19 +10878,25 @@ function boardPerf() {
         var convScore = convCoef === null ? null : convCoef * perfRule.convWeight;
         var praiseScore = perfRule.praiseFactor * perfRule.praiseWeight;
         var costScore = perfRule.costFactor * perfRule.costWeight;
+        // 质检扣分：本期无质检记录 → 合计 0 → 档位 0 分（不扣）
+        var qcInfo = qcMap[nick] || { total: 0, rows: [] };
+        var qcTotal = qcInfo.total;
+        var qcPenalty = qcPenaltyOf(qcTotal);
         var total = [satScore, respScore, convScore, praiseScore, costScore].reduce(function (a, b) {
             if (a === null) return b; if (b === null) return a; return a + b;
         }, null);
+        if (total !== null) total += qcPenalty;   // 质检为加减分项，从总分里扣
         return {
             nick: nick, real: real, satDetails: satDetails, satScore: satScore,
             resp: resp, respCoef: respCoef, respScore: respScore,
             conv: conv, convCoef: convCoef, convScore: convScore,
-            praiseScore: praiseScore, costScore: costScore, total: total
+            praiseScore: praiseScore, costScore: costScore,
+            qcTotal: qcTotal, qcPenalty: qcPenalty, qcRows: qcInfo.rows, total: total
         };
     });
     list.sort(function (a, b) { return (b.total === null ? -1 : b.total) - (a.total === null ? -1 : a.total); });
     var maxT = Math.max.apply(null, list.map(function (x) { return x.total || 0; }).concat([1]));
-    var head = '<thead><tr><th class="txt" style="width:40px"></th><th class="txt">排名</th><th class="txt">客服</th><th>满意率(50)</th><th>响应(15)</th><th>转化(10)</th><th>好评(10)</th><th>售后(15)</th><th>绩效总分</th></tr></thead>';
+    var head = '<thead><tr><th class="txt" style="width:40px"></th><th class="txt">排名</th><th class="txt">客服</th><th>满意率(50)</th><th>响应(15)</th><th>转化(10)</th><th>好评(10)</th><th>售后(15)</th><th>质检扣分</th><th>绩效总分</th></tr></thead>';
     var body = list.map(function (x, i) {
         var expId = 'perf-exp-' + i;
         var main = '<tr class="perf-main" data-idx="' + i + '"><td class="txt"><span class="perf-toggle" data-target="' + expId + '">▶</span></td>' +
@@ -10803,9 +10905,11 @@ function boardPerf() {
             '<td>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 1)) + '<span class="cell-sub"> (' + (x.resp === null ? '—' : fmtNum(x.resp, 1) + 's') + ')</span></td>' +
             '<td>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 1)) + '<span class="cell-sub"> (' + pctTxt(x.conv) + ')</span></td>' +
             '<td>' + fmtNum(x.praiseScore, 1) + '</td><td>' + fmtNum(x.costScore, 1) + '</td>' +
+            '<td>' + (x.qcPenalty === 0 ? '0' : '<strong style="color:#c62828">' + x.qcPenalty + '</strong>') +
+            (x.qcTotal > 0 ? '<span class="cell-sub"> (扣' + qcNum(x.qcTotal) + ')</span>' : '') + '</td>' +
             '<td><strong style="color:var(--primary-dark)">' + (x.total === null ? '—' : fmtNum(x.total, 1)) + '</strong></td></tr>';
         // 展开明细
-        var detail = '<tr class="perf-detail" id="' + expId + '" style="display:none"><td colspan="9">' + renderPerfDetail(x) + '</td></tr>';
+        var detail = '<tr class="perf-detail" id="' + expId + '" style="display:none"><td colspan="10">' + renderPerfDetail(x) + '</td></tr>';
         return main + detail;
     }).join('');
     document.getElementById('perfTable').innerHTML = head + '<tbody>' + body + '</tbody>';
@@ -10828,7 +10932,8 @@ function boardPerf() {
         '<br>• 平台得分规则：① ≥100%→1.0×权重；② 平台内排名 1-2 → 0.95；③ 排名 3-5 → 0.85；④ 排名 6-8 → 0.75；⑤ 91%≤sat&lt;93% → 0.65；⑥ &lt;91% → 0。' +
         '<br>• <strong>天猫旗舰店特例</strong>：满意率 &lt; 95% 该平台得 0。' +
         '<br>• 响应与转化率按接待量、询单量加权；点名好评与售后成本本期<strong>缺少明细数据</strong>，统一按固定系数 ' + perfRule.praiseFactor + ' 计分。' +
-        '<br>当前满分 ' + fmtNum(maxTotal, 1) + ' 分（不含加减分项）。点击每行左侧 ▶ 展开明细。';
+        '<br>• <strong>质检扣分</strong>：按本期（' + (BOARD_MONTH === '__all' ? '全部月份' : BOARD_MONTH) + '）质检中心记录合计扣分落档 —— ' + qcLadderDesc() + '；直接从总分扣除。' +
+        '<br>当前满分 ' + fmtNum(maxTotal, 1) + ' 分，质检扣分属<strong>加减分项</strong>（不占满分）。点击每行左侧 ▶ 展开明细。';
 }
 
 function renderPerfDetail(x) {
@@ -10864,9 +10969,29 @@ function renderPerfDetail(x) {
         '<td>得分 <strong>' + fmtNum(x.praiseScore, 2) + '</strong> / ' + perfRule.praiseWeight + '</td></tr>';
     html += '<tr><td>售后成本</td><td>—</td><td>系数 ' + perfRule.costFactor + '</td>' +
         '<td>得分 <strong>' + fmtNum(x.costScore, 2) + '</strong> / ' + perfRule.costWeight + '</td></tr>';
+    html += '<tr><td>质检扣分</td><td>本期合计扣 ' + qcNum(x.qcTotal) + ' 分' +
+        ((x.qcRows && x.qcRows.length) ? '（' + x.qcRows.length + ' 条记录）' : '') + '</td>' +
+        '<td>落档 ' + x.qcPenalty + ' 分</td>' +
+        '<td>得分 <strong>' + x.qcPenalty + '</strong> 分</td></tr>';
     html += '</tbody></table>';
     html += '<div class="pd-sum">绩效总分 <strong>' + (x.total === null ? '—' : fmtNum(x.total, 2)) + '</strong> 分</div>';
-    html += '</div></div>';
+    html += '</div>';
+    // 质检扣分明细
+    html += '<div class="pd-section"><div class="pd-head">质检扣分明细（本期）</div>';
+    if (!x.qcRows || !x.qcRows.length) {
+        html += '<div class="pd-empty">本期无质检记录，按 0 分计（绩效不扣分）</div>';
+    } else {
+        html += '<table class="pd-table"><thead><tr><th>日期</th><th>项目</th><th>内容</th><th>扣分</th><th class="pd-reason">问题描述</th></tr></thead><tbody>';
+        x.qcRows.forEach(function (r) {
+            html += '<tr><td>' + qcEsc(r.date) + '</td><td>' + qcEsc(r.item) + '</td><td>' + qcEsc(r.content) + '</td>' +
+                '<td><strong style="color:#c62828">' + qcNum(r.deduct) + '</strong></td>' +
+                '<td class="pd-reason">' + qcEsc(r.detail) + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        html += '<div class="pd-sum">合计扣 <strong>' + qcNum(x.qcTotal) + '</strong> 分 → 绩效 <strong style="color:#c62828">' + x.qcPenalty + '</strong> 分　　档位：' + qcLadderDesc() + '</div>';
+    }
+    html += '</div>';
+    html += '</div>';
     return html;
 }
 
