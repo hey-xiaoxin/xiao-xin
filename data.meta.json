@@ -1,5 +1,5 @@
 {
-  "_exportedAt": "2026-09-22T08:37:33.597Z",
+  "_exportedAt": "2026-09-22T08:41:26.775Z",
   "_fpv": 3,
   "_kdf": {
     "salt": "tM/3PYy2jsHvCSUklWfeoQ==",
@@ -7,7 +7,7 @@
   },
   "_media": {
     "n": 22,
-    "bytes": 3067646,
+    "bytes": 1133344,
     "mode": "js"
   },
   "_serviceCount": 141,
