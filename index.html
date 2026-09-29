@@ -1504,6 +1504,22 @@ header { position: relative; }
 .rule-item label { display: block; font-size: 0.76rem; font-weight: 700; color: var(--text-light); margin-bottom: 4px; }
 .rule-item input, .rule-item select { width: 100%; padding: 7px 10px; border: 1.5px solid var(--gray); border-radius: 6px; font-size: 0.88rem; }
 .rule-item input:focus { border-color: var(--primary); outline: none; }
+.rule-period { grid-column: 1 / -1; margin-top: 4px; padding-top: 12px; border-top: 1px dashed var(--gray); }
+.rule-period-h { font-size: 0.76rem; font-weight: 700; color: var(--text-light); margin-bottom: 8px; }
+.rule-period-rows { display: flex; flex-direction: column; gap: 8px; }
+.rule-period-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rule-period-row input { padding: 7px 10px; border: 1.5px solid var(--gray); border-radius: 6px; font-size: 0.86rem; }
+.rule-period-row input:focus { border-color: var(--primary); outline: none; }
+.rule-period-row .rp-from { width: 150px; }
+.rule-period-row .rp-resp, .rule-period-row .rp-conv { width: 74px; }
+.rule-period-row .rp-lb { font-size: 0.76rem; font-weight: 700; color: var(--text-light); }
+.rule-period-del { border: none; background: #fdecec; color: #c62828; width: 26px; height: 26px; border-radius: 50%; cursor: pointer; font-size: 0.9rem; font-weight: 800; line-height: 1; }
+.rule-period-del:hover { background: #f8d7d7; }
+.rule-period-empty { font-size: 0.8rem; color: var(--text-light); }
+.rule-period-foot { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.rule-period-add { border: 1.5px solid var(--primary-light); background: #fff; color: var(--primary-dark); border-radius: 100px; padding: 6px 14px; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+.rule-period-add:hover { background: var(--primary-light); }
+.rule-period-tip { font-size: 0.76rem; color: var(--text-light); }
 .people-add { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 22px; }
 .people-add input { flex: 1; min-width: 150px; padding: 9px 12px; border: 2px solid var(--gray); border-radius: 8px; font-size: 0.9rem; }
 .people-add input:focus { border-color: var(--primary); outline: none; }
@@ -10325,7 +10341,10 @@ var DEFAULT_RULE = {
     asScore: { refund: 0.3, return: 0.5, review: 0.1 },
     /* 质检扣分 → 绩效加减分：按本期质检扣分「合计」落档，取第一个满足的档位（从高到低）
        0 分 → 0 分；1~5 分 → -1 分；6~15 分 → -3 分；>15 分（即 16 分起）→ -5 分 */
-    qcLadder: [[16, -5], [6, -3], [1, -1], [0, 0]]
+    qcLadder: [[16, -5], [6, -3], [1, -1], [0, 0]],
+    /* 分月权重：某月起覆盖基准权重（只影响绩效看板计分，不改动规则表单里的基准值）
+       2026-10 起：平均响应 10 分、询单转化 15 分；此前各期仍按基准 15 / 10。 */
+    periodWeights: [{ from: '2026-10', respWeight: 10, convWeight: 15 }]
 };
 var perfRule = null;
 
@@ -10338,7 +10357,64 @@ function loadRule() {
     // 旧规则（2026-09-20 之前保存的）没有「质检扣分档位」→ 补默认值。
     // 只在内存生效、不写回 localStorage，避免动到用户已保存的规则。
     if (!perfRule.qcLadder || !perfRule.qcLadder.length) perfRule.qcLadder = JSON.parse(JSON.stringify(DEFAULT_RULE.qcLadder));
+    // 旧规则没有「分月权重」→ 补默认值。同样只在内存生效，避免动到已保存的规则。
+    if (!perfRule.periodWeights || !perfRule.periodWeights.length) perfRule.periodWeights = JSON.parse(JSON.stringify(DEFAULT_RULE.periodWeights));
     return perfRule;
+}
+/* 取某一期（YYYY-MM）生效的规则：基准值 + periodWeights 中「from ≤ 期数」的最新一条覆盖。
+   期数为空或「全部月份」→ 取最新一条覆盖（跨生效期时统一按最新规则算，口径说明里会标注）。 */
+function ruleForPeriod(period) {
+    var base = perfRule || DEFAULT_RULE;
+    var list = base.periodWeights || [];
+    var p = (period && period !== '__all') ? String(period) : null;
+    var best = null;
+    for (var i = 0; i < list.length; i++) {
+        var v = list[i];
+        if (!v || !v.from) continue;
+        if (p !== null && String(v.from) > p) continue;
+        if (!best || String(v.from) > String(best.from)) best = v;
+    }
+    if (!best) return base;
+    var R = {};
+    for (var k in base) R[k] = base[k];
+    if (typeof best.respWeight === 'number') R.respWeight = best.respWeight;
+    if (typeof best.convWeight === 'number') R.convWeight = best.convWeight;
+    R._from = String(best.from);
+    return R;
+}
+/* 分月权重的中文描述，如「2026-10 起：响应 10 分／转化 15 分」 */
+function rulePeriodDesc() {
+    var L = ((perfRule && perfRule.periodWeights) || []).slice().sort(function (a, b) {
+        return String(a.from) < String(b.from) ? -1 : 1;
+    });
+    if (!L.length) return '';
+    return L.map(function (v) {
+        var parts = [];
+        if (typeof v.respWeight === 'number') parts.push('响应 ' + v.respWeight + ' 分');
+        if (typeof v.convWeight === 'number') parts.push('转化 ' + v.convWeight + ' 分');
+        return String(v.from) + ' 起：' + parts.join('／');
+    }).join('；');
+}
+/* 规则表单里的「分月权重」一行 */
+function rulePeriodRow(v, i) {
+    v = v || {};
+    return '<div class="rule-period-row"><input type="month" class="rp-from" value="' + escAttr(v.from || '') + '" title="生效起始月（含）">' +
+        '<span class="rp-lb">起 响应</span>' +
+        '<input type="number" step="1" class="rp-resp" value="' + (typeof v.respWeight === 'number' ? v.respWeight : '') + '">' +
+        '<span class="rp-lb">分 / 转化</span>' +
+        '<input type="number" step="1" class="rp-conv" value="' + (typeof v.convWeight === 'number' ? v.convWeight : '') + '">' +
+        '<span class="rp-lb">分</span>' +
+        '<button type="button" class="rule-period-del" onclick="rulePeriodDel(' + i + ')" title="删除该生效期">×</button></div>';
+}
+function rulePeriodAdd() {
+    if (!perfRule.periodWeights) perfRule.periodWeights = [];
+    perfRule.periodWeights.push({ from: '', respWeight: perfRule.respWeight, convWeight: perfRule.convWeight });
+    renderRuleForm();
+}
+function rulePeriodDel(i) {
+    if (!perfRule.periodWeights) return;
+    perfRule.periodWeights.splice(i, 1);
+    renderRuleForm();
 }
 function savePerfRule() {
     ['satWeight', 'satTarget', 'respWeight', 'respTarget', 'convWeight', 'convTarget',
@@ -10358,6 +10434,26 @@ function savePerfRule() {
         var el = document.getElementById('as-' + k);
         if (el) perfRule.asScore[k] = parseFloat(el.value);
     });
+    // 分月权重：读表单里的行（生效月为空的行丢弃）
+    var rowsEl = document.getElementById('rulePeriodRows');
+    if (rowsEl) {
+        var next = [];
+        rowsEl.querySelectorAll('.rule-period-row').forEach(function (row) {
+            var fromEl = row.querySelector('.rp-from');
+            var rEl = row.querySelector('.rp-resp');
+            var cEl = row.querySelector('.rp-conv');
+            var from = normPeriod(fromEl ? fromEl.value : '');
+            if (!from) return;
+            var it = { from: from };
+            var rw = rEl ? parseFloat(rEl.value) : NaN;
+            var cw = cEl ? parseFloat(cEl.value) : NaN;
+            if (!isNaN(rw)) it.respWeight = rw;
+            if (!isNaN(cw)) it.convWeight = cw;
+            next.push(it);
+        });
+        next.sort(function (a, b) { return a.from < b.from ? -1 : (a.from > b.from ? 1 : 0); });
+        perfRule.periodWeights = next;
+    }
     localStorage.setItem(RULE_KEY, JSON.stringify(perfRule));
     boardRender();
     showNotification('绩效规则已保存');
@@ -10410,6 +10506,15 @@ function renderRuleForm() {
     html += item('as-refund', '售后：处理一笔退款计分', perfRule.asScore.refund, 0.1);
     html += item('as-return', '售后：处理一笔退货计分', perfRule.asScore.return, 0.1);
     html += item('as-review', '售后：一条回评计分', perfRule.asScore.review, 0.05);
+    // 分月权重：从某月起覆盖「响应／转化」权重（口径调整用，如 2026-10 起响应10/转化15）
+    var pw = perfRule.periodWeights || [];
+    html += '<div class="rule-period"><div class="rule-period-h">分月权重 · 从某月起覆盖上面的「响应 / 转化」基准权重（不改动基准值，也不影响其他期数）</div>' +
+        '<div class="rule-period-rows" id="rulePeriodRows">' +
+        (pw.length ? pw.map(rulePeriodRow).join('') : '<div class="rule-period-empty">未设置 —— 所有期数都按上面的基准权重计算</div>') +
+        '</div>' +
+        '<div class="rule-period-foot"><button type="button" class="rule-period-add" onclick="rulePeriodAdd()">＋ 新增生效期</button>' +
+        (pw.length ? '<span class="rule-period-tip">当前：' + escAttr(rulePeriodDesc()) + '</span>' : '') +
+        '</div></div>';
     g.innerHTML = html;
 }
 
@@ -10786,6 +10891,8 @@ function qcNum(v) {
 
 /* ---------- 3. 绩效看板 ---------- */
 function boardPerf() {
+    // 该期生效的规则（分月权重：如 2026-10 起响应 10／转化 15，8-9 月仍按 15／10）
+    var R = ruleForPeriod(BOARD_MONTH);
     var rows = boardRows(BOARD_DATA.service || []);
     var byNick = {};
     rows.forEach(function (r) { (byNick[r.nick] = byNick[r.nick] || []).push(r); });
@@ -10836,7 +10943,7 @@ function boardPerf() {
         var satDetails = [];
         var hasSat = false;
         arr.forEach(function (r) {
-            var w = perfRule.satPlat[r.platform];
+            var w = R.satPlat[r.platform];
             if (!w) return; // 不在考核范围内的平台不计
             if (r.satisfaction === null || r.satisfaction === undefined) return;
             hasSat = true;
@@ -10862,8 +10969,8 @@ function boardPerf() {
         // 平均响应：按接待量加权
         var resp = wavg(arr, 'respSec', function (r) { return r.receptions || 1; });
         var respCoef = null;
-        if (resp !== null) respCoef = resp <= perfRule.respTarget ? 1 : Math.max(0, 1 - (resp - perfRule.respTarget) / perfRule.respTarget);
-        var respScore = respCoef === null ? null : respCoef * perfRule.respWeight;
+        if (resp !== null) respCoef = resp <= R.respTarget ? 1 : Math.max(0, 1 - (resp - R.respTarget) / R.respTarget);
+        var respScore = respCoef === null ? null : respCoef * R.respWeight;
         // 转化率：按询单量加权
         var inq = sumOf(arr, function (r) { return r.inquiries; });
         var ord = sumOf(arr, function (r) { return r.orders; });
@@ -10871,13 +10978,13 @@ function boardPerf() {
         var convCoef = null;
         if (conv !== null) {
             convCoef = 0;
-            for (var i = 0; i < perfRule.convLadder.length; i++) {
-                if (conv >= perfRule.convLadder[i][0]) { convCoef = perfRule.convLadder[i][1]; break; }
+            for (var i = 0; i < R.convLadder.length; i++) {
+                if (conv >= R.convLadder[i][0]) { convCoef = R.convLadder[i][1]; break; }
             }
         }
-        var convScore = convCoef === null ? null : convCoef * perfRule.convWeight;
-        var praiseScore = perfRule.praiseFactor * perfRule.praiseWeight;
-        var costScore = perfRule.costFactor * perfRule.costWeight;
+        var convScore = convCoef === null ? null : convCoef * R.convWeight;
+        var praiseScore = R.praiseFactor * R.praiseWeight;
+        var costScore = R.costFactor * R.costWeight;
         // 质检扣分：本期无质检记录 → 合计 0 → 档位 0 分（不扣）
         var qcInfo = qcMap[nick] || { total: 0, rows: [] };
         var qcTotal = qcInfo.total;
@@ -10896,7 +11003,7 @@ function boardPerf() {
     });
     list.sort(function (a, b) { return (b.total === null ? -1 : b.total) - (a.total === null ? -1 : a.total); });
     var maxT = Math.max.apply(null, list.map(function (x) { return x.total || 0; }).concat([1]));
-    var head = '<thead><tr><th class="txt" style="width:40px"></th><th class="txt">排名</th><th class="txt">客服</th><th>满意率(50)</th><th>响应(15)</th><th>转化(10)</th><th>好评(10)</th><th>售后(15)</th><th>质检扣分</th><th>绩效总分</th></tr></thead>';
+    var head = '<thead><tr><th class="txt" style="width:40px"></th><th class="txt">排名</th><th class="txt">客服</th><th>满意率(' + qcNum(R.satWeight) + ')</th><th>响应(' + qcNum(R.respWeight) + ')</th><th>转化(' + qcNum(R.convWeight) + ')</th><th>好评(' + qcNum(R.praiseWeight) + ')</th><th>售后(' + qcNum(R.costWeight) + ')</th><th>质检扣分</th><th>绩效总分</th></tr></thead>';
     var body = list.map(function (x, i) {
         var expId = 'perf-exp-' + i;
         var main = '<tr class="perf-main" data-idx="' + i + '"><td class="txt"><span class="perf-toggle" data-target="' + expId + '">▶</span></td>' +
@@ -10909,7 +11016,7 @@ function boardPerf() {
             (x.qcTotal > 0 ? '<span class="cell-sub"> (扣' + qcNum(x.qcTotal) + ')</span>' : '') + '</td>' +
             '<td><strong style="color:var(--primary-dark)">' + (x.total === null ? '—' : fmtNum(x.total, 1)) + '</strong></td></tr>';
         // 展开明细
-        var detail = '<tr class="perf-detail" id="' + expId + '" style="display:none"><td colspan="10">' + renderPerfDetail(x) + '</td></tr>';
+        var detail = '<tr class="perf-detail" id="' + expId + '" style="display:none"><td colspan="10">' + renderPerfDetail(x, R) + '</td></tr>';
         return main + detail;
     }).join('');
     document.getElementById('perfTable').innerHTML = head + '<tbody>' + body + '</tbody>';
@@ -10924,19 +11031,21 @@ function boardPerf() {
             }
         });
     });
-    var maxTotal = perfRule.satWeight + perfRule.respWeight + perfRule.convWeight +
-        perfRule.praiseWeight * perfRule.praiseFactor + perfRule.costWeight * perfRule.costFactor;
+    var maxTotal = R.satWeight + R.respWeight + R.convWeight +
+        R.praiseWeight * R.praiseFactor + R.costWeight * R.costFactor;
     document.getElementById('perfNote').innerHTML =
         '计分口径：<br>' +
         '• 满意率按各平台在该平台内的得分系数 × 平台权重累加（天猫 9%／抖音三店各 9%／京东两店各 5%／快手 4%，不含拼多多）。' +
         '<br>• 平台得分规则：① ≥100%→1.0×权重；② 平台内排名 1-2 → 0.95；③ 排名 3-5 → 0.85；④ 排名 6-8 → 0.75；⑤ 91%≤sat&lt;93% → 0.65；⑥ &lt;91% → 0。' +
         '<br>• <strong>天猫旗舰店特例</strong>：满意率 &lt; 95% 该平台得 0。' +
-        '<br>• 响应与转化率按接待量、询单量加权；点名好评与售后成本本期<strong>缺少明细数据</strong>，统一按固定系数 ' + perfRule.praiseFactor + ' 计分。' +
+        '<br>• 响应与转化率按接待量、询单量加权；点名好评与售后成本本期<strong>缺少明细数据</strong>，统一按固定系数 ' + R.praiseFactor + ' 计分。' +
+        '<br>• <strong>权重分月生效</strong>：' + (rulePeriodDesc() || '未设置') + '；本期按 <strong>响应 ' + qcNum(R.respWeight) + ' 分／转化 ' + qcNum(R.convWeight) + ' 分</strong> 计算' + ((!BOARD_MONTH || BOARD_MONTH === '__all') && (R.periodWeights || []).length > 1 ? '（「全部月份」跨多个生效期，统一按最新规则）' : '') + '。' +
         '<br>• <strong>质检扣分</strong>：按本期（' + (BOARD_MONTH === '__all' ? '全部月份' : BOARD_MONTH) + '）质检中心记录合计扣分落档 —— ' + qcLadderDesc() + '；直接从总分扣除。' +
         '<br>当前满分 ' + fmtNum(maxTotal, 1) + ' 分，质检扣分属<strong>加减分项</strong>（不占满分）。点击每行左侧 ▶ 展开明细。';
 }
 
-function renderPerfDetail(x) {
+function renderPerfDetail(x, R) {
+    R = R || ruleForPeriod(BOARD_MONTH);
     var html = '<div class="perf-detail-inner">';
     // 满意率明细
     html += '<div class="pd-section"><div class="pd-head">满意率明细</div>';
@@ -10954,21 +11063,21 @@ function renderPerfDetail(x) {
                 '<td class="pd-reason">' + escAttr(d.reason) + '</td></tr>';
         });
         html += '</tbody></table>';
-        html += '<div class="pd-sum">合计 <strong>' + fmtNum(x.satScore, 2) + '</strong> / ' + perfRule.satWeight + '</div>';
+        html += '<div class="pd-sum">合计 <strong>' + fmtNum(x.satScore, 2) + '</strong> / ' + R.satWeight + '</div>';
     }
     html += '</div>';
     // 其他三项
     html += '<div class="pd-section"><div class="pd-head">其他指标</div><table class="pd-table"><tbody>';
     html += '<tr><td>平均响应</td><td>' + (x.resp === null ? '—' : fmtNum(x.resp, 1) + ' s') + '</td>' +
         '<td>系数 ' + (x.respCoef === null ? '—' : x.respCoef.toFixed(2)) + '</td>' +
-        '<td>得分 <strong>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 2)) + '</strong> / ' + perfRule.respWeight + '</td></tr>';
+        '<td>得分 <strong>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 2)) + '</strong> / ' + R.respWeight + '</td></tr>';
     html += '<tr><td>转化率</td><td>' + pctTxt(x.conv) + '</td>' +
         '<td>系数 ' + (x.convCoef === null ? '—' : x.convCoef) + '</td>' +
-        '<td>得分 <strong>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 2)) + '</strong> / ' + perfRule.convWeight + '</td></tr>';
-    html += '<tr><td>点名好评</td><td>—</td><td>系数 ' + perfRule.praiseFactor + '</td>' +
-        '<td>得分 <strong>' + fmtNum(x.praiseScore, 2) + '</strong> / ' + perfRule.praiseWeight + '</td></tr>';
-    html += '<tr><td>售后成本</td><td>—</td><td>系数 ' + perfRule.costFactor + '</td>' +
-        '<td>得分 <strong>' + fmtNum(x.costScore, 2) + '</strong> / ' + perfRule.costWeight + '</td></tr>';
+        '<td>得分 <strong>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 2)) + '</strong> / ' + R.convWeight + '</td></tr>';
+    html += '<tr><td>点名好评</td><td>—</td><td>系数 ' + R.praiseFactor + '</td>' +
+        '<td>得分 <strong>' + fmtNum(x.praiseScore, 2) + '</strong> / ' + R.praiseWeight + '</td></tr>';
+    html += '<tr><td>售后成本</td><td>—</td><td>系数 ' + R.costFactor + '</td>' +
+        '<td>得分 <strong>' + fmtNum(x.costScore, 2) + '</strong> / ' + R.costWeight + '</td></tr>';
     html += '<tr><td>质检扣分</td><td>本期合计扣 ' + qcNum(x.qcTotal) + ' 分' +
         ((x.qcRows && x.qcRows.length) ? '（' + x.qcRows.length + ' 条记录）' : '') + '</td>' +
         '<td>落档 ' + x.qcPenalty + ' 分</td>' +
