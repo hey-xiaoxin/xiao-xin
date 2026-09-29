@@ -12148,6 +12148,63 @@ var QC_FILTER = { date: '__all', who: '__all', item: '__all', content: '__all', 
 var QC_STORAGE_KEY = 'llm_qc_v1';
 var QC_STORAGE_MAX_BYTES = 4 * 1024 * 1024; // 4MB 兜底（base64 图体积较大）
 
+/* ---------- 质检图片体积保护 ----------
+   localStorage 上限只有 ~5MB，质检截图转 base64 后很容易破 4MB。
+   QCStorage.save() 一旦超限就「丢图保数据」（imagesDropped:true），
+   导出包随之无图 → 发布后线上质检图全部消失（2026-09-29 事故）。
+   所以导入时先把过大的图等比缩小并转 JPEG，保证总量能存下。 */
+var QC_SHRINK_STEPS = [[1500, 0.85], [1100, 0.72], [800, 0.6]]; // 逐档降级：[最长边(px), JPEG 质量]
+
+function qcPayloadTooBig(d) {
+    try {
+        return JSON.stringify({
+            rows: d.rows, fileName: d.fileName, media: d.media,
+            cellImageMap: d.cellImageMap, savedAt: d.savedAt
+        }).length > QC_STORAGE_MAX_BYTES;
+    } catch (e) { return false; }
+}
+
+function qcShrinkMedia(media, edge, quality, cb) {
+    var keys = Object.keys(media || {});
+    if (!keys.length) { cb(media || {}); return; }
+    var out = {}, pending = keys.length, done = false;
+    var tick = function () { if (!done && --pending <= 0) { done = true; cb(out); } };
+    keys.forEach(function (k) {
+        var v = media[k];
+        if (typeof v !== 'string' || v.indexOf('data:image/') !== 0) { out[k] = v; tick(); return; }
+        var img = new Image();
+        img.onload = function () {
+            try {
+                var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+                if (!w || !h) { out[k] = v; tick(); return; }
+                var scale = Math.min(1, edge / Math.max(w, h));
+                var cv = document.createElement('canvas');
+                cv.width = Math.max(1, Math.round(w * scale));
+                cv.height = Math.max(1, Math.round(h * scale));
+                var ctx = cv.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, cv.width, cv.height);
+                ctx.drawImage(img, 0, 0, cv.width, cv.height);
+                var jpeg = cv.toDataURL('image/jpeg', quality);
+                out[k] = (jpeg && jpeg.length < v.length) ? jpeg : v;
+            } catch (e) { out[k] = v; }
+            tick();
+        };
+        img.onerror = function () { out[k] = v; tick(); };
+        img.src = v;
+    });
+}
+
+// 逐档降级，直到总量能存下；返回是否至少压过一轮
+function qcShrinkUntilFits(d, step, cb) {
+    if (!qcPayloadTooBig(d) || step >= QC_SHRINK_STEPS.length) { cb(d, step > 0); return; }
+    var p = QC_SHRINK_STEPS[step];
+    qcShrinkMedia(d.media, p[0], p[1], function (m) {
+        d.media = m;
+        qcShrinkUntilFits(d, step + 1, cb);
+    });
+}
+
 function qcReset(keepStored) {
     QC_DATA = { rows: [], fileName: '', media: {}, cellImageMap: {}, savedAt: '' };
     if (!keepStored) QCStorage.remove();
@@ -12366,11 +12423,21 @@ function qcUploadFile(file) {
                 QC_DATA.rows = qcParseXlsx(wb);
                 QC_DATA.savedAt = new Date().toISOString();
                 if (nameEl) nameEl.textContent = '已导入：' + file.name + '（' + QC_DATA.rows.length + ' 条）';
-                QCStorage.save();
-                // 新导入后把筛选复位，并默认切到最新日期（多天/多月的数据不再混在一起展示）
-                QC_FILTER = { date: qcLatestDateKey(), who: '__all', item: '__all', content: '__all', kw: '' };
-                qcRenderAll();
-                showNotification('质检数据已加载：' + QC_DATA.rows.length + ' 条');
+                var qcAfterSave = function (shrunk) {
+                    QCStorage.save();
+                    // 新导入后把筛选复位，并默认切到最新日期（多天/多月的数据不再混在一起展示）
+                    QC_FILTER = { date: qcLatestDateKey(), who: '__all', item: '__all', content: '__all', kw: '' };
+                    qcRenderAll();
+                    showNotification('质检数据已加载：' + QC_DATA.rows.length + ' 条'
+                        + (shrunk ? '（图片已压缩后保存）' : ''));
+                };
+                // 体积保护：不先压缩就可能触发 QCStorage 的丢图降级，导出包就没图了
+                // 逐档降级，宁可画质低一点，也不能让图丢掉
+                if (qcPayloadTooBig(QC_DATA)) {
+                    qcShrinkUntilFits(QC_DATA, 0, function (d, shrunk) { qcAfterSave(shrunk); });
+                } else {
+                    qcAfterSave(false);
+                }
             } catch (err) {
                 if (nameEl) nameEl.textContent = '解析失败：' + err.message;
                 showNotification('质检数据解析失败', 'error');
