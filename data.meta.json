@@ -1,5 +1,5 @@
 {
-  "_exportedAt": "2026-10-04T04:02:19.342Z",
+  "_exportedAt": "2026-10-06T02:06:29.390Z",
   "_fpv": 3,
   "_kdf": {
     "salt": "tM/3PYy2jsHvCSUklWfeoQ==",
@@ -8,7 +8,7 @@
   "_media": {
     "n": 24,
     "bytes": 1206307,
-    "mode": "pillow"
+    "mode": "js"
   },
   "_serviceCount": 176,
   "_aftersaleCount": 80,
@@ -17,7 +17,7 @@
   "_fp": {
     "product": "037eef579142696d",
     "schedule": "2a0f0a7e9dd2ef15",
-    "perf": "5220c839ed68a7c7",
+    "perf": "3dc23daec61f221a",
     "qc": "f4f141e1e474268d"
   }
 }
