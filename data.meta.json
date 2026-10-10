@@ -1,5 +1,5 @@
 {
-  "_exportedAt": "2026-10-09T04:02:36.357Z",
+  "_exportedAt": "2026-10-10T04:02:46.613Z",
   "_fpv": 3,
   "_kdf": {
     "salt": "tM/3PYy2jsHvCSUklWfeoQ==",
@@ -11,13 +11,13 @@
     "mode": "pillow"
   },
   "_serviceCount": 200,
-  "_aftersaleCount": 87,
+  "_aftersaleCount": 88,
   "_productCount": 168,
   "_staffCount": 8,
   "_fp": {
     "product": "037eef579142696d",
     "schedule": "2a0f0a7e9dd2ef15",
-    "perf": "a62d3a9acac9beee",
+    "perf": "671f3d590ba92c08",
     "qc": "b447cf7bcf756893"
   }
 }
