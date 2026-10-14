@@ -465,6 +465,31 @@ header { position: relative; }
             flex: 1;
         }
 
+        /* 营养成分表：拖动把手 */
+        .nutrition-drag {
+            flex: 0 0 auto;
+            cursor: grab;
+            color: var(--text-light, #8a8a8a);
+            font-size: 0.95rem;
+            line-height: 1;
+            padding: 4px 3px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .nutrition-drag:active { cursor: grabbing; }
+        .nutrition-row.nut-dragging { opacity: .45; }
+        .nutrition-row.nut-drop-before { border-top: 2px solid var(--primary, #14e8c2); }
+        .nutrition-row.nut-drop-after  { border-bottom: 2px solid var(--primary, #14e8c2); }
+
+        /* 营养成分表：数值 + 单位 两个框 */
+        .nutrition-val-group {
+            flex: 1.5 1 0;
+            display: flex;
+            gap: 6px;
+            min-width: 0;
+        }
+        .nutrition-val-group input { flex: 1 1 0; min-width: 0; }
+
         .admin-login {
             margin: 20px auto;
             max-width: 400px;
@@ -473,6 +498,22 @@ header { position: relative; }
             border-radius: 12px;
             box-shadow: var(--card-shadow);
         }
+
+        .btn-link {
+            display: block;
+            width: 100%;
+            margin-top: 10px;
+            padding: 7px 6px;
+            background: none;
+            border: none;
+            border-radius: 8px;
+            color: var(--text-light, #8a8a8a);
+            font-family: inherit;
+            font-size: 0.85rem;
+            cursor: pointer;
+            text-align: center;
+        }
+        .btn-link:hover { color: var(--primary, #14e8c2); background: rgba(20, 232, 194, .07); }
 
         .tag-editor {
             background: #f8fdf8;
@@ -3564,7 +3605,19 @@ header::after {
                         <div class="password-error" id="password-error" data-page-node-id="sCPuHxXTD5GF2qtsh2kHFA">密码错误，请重新输入</div>
                     </div>
 
+                    <div class="form-group" id="admin-pwd-group" style="display:none" data-page-node-id="apg0001">
+                        <label for="admin-password" data-page-node-id="apg0002">数据管理密码</label>
+                        <div class="password-input-group" data-page-node-id="apg0003">
+                            <input type="password" id="admin-password" placeholder="请输入数据管理密码..." data-page-node-id="apg0004">
+                            <span class="password-toggle" id="admin-password-toggle" data-page-node-id="apg0005">
+                                <i class="fas fa-eye" data-page-node-id="apg0006"></i>
+                            </span>
+                        </div>
+                        <div class="password-error" id="admin-password-error" data-page-node-id="apg0007">数据管理密码错误，请向管理员确认</div>
+                    </div>
+
                     <button class="btn" id="login-btn" data-page-node-id="T2rFrLm2Gpmm8z32XqMZJq">登录系统</button>
+                    <button type="button" class="btn-link" id="admin-login-toggle" data-page-node-id="alt0001">数据管理员登录 ›</button>
                 </div>
             </div>
 
@@ -4192,6 +4245,10 @@ header::after {
                             <div class="qss-label" data-page-node-id="qcSideL">本地存储 Key</div>
                             <code data-page-node-id="qcSideK">llm_qc_v1</code>
                         </div>
+                        <div class="qc-side-stat" data-page-node-id="qcSideMem">
+                            <div class="qss-label" data-page-node-id="qcSideMemL">本地占用</div>
+                            <code id="qcStorageTip" data-page-node-id="qcSideMemK">—</code>
+                        </div>
                         <button class="btn btn-small btn-outline" id="qcClearBtn" onclick="qcClearStored()" data-page-node-id="qcClearBtn"><i class="fas fa-trash-alt" data-page-node-id="qcClearI"></i> 清除本地数据</button>
                     </div>
                 </div>
@@ -4249,6 +4306,16 @@ header::after {
 
         <!-- ==================== 数据管理 ==================== -->
         <div class="page prod" id="manage-page" data-page-node-id="H1TZ417g7vjBv5OhFzWCQb">
+            <div class="admin-only" id="online-admin-notice" data-page-node-id="oan0001">
+                <div class="card" style="background:#fff8e1;border-left:4px solid #ffc107;margin-bottom:20px;" data-page-node-id="oan0002">
+                    <p style="margin:0 0 8px;font-weight:700;" data-page-node-id="oan0003"><i class="fas fa-exclamation-triangle" data-page-node-id="oan0004"></i> 在线数据管理 · 请务必按这个流程操作</p>
+                    <ol style="margin:0;padding-left:20px;line-height:1.9;color:var(--text-light);" data-page-node-id="oan0005">
+                        <li data-page-node-id="oan0006">你在这里的每一次修改，<strong data-page-node-id="oan0007">只保存在你自己这台电脑的浏览器里</strong>，其他同事刷新页面看到的仍是旧数据。</li>
+                        <li data-page-node-id="oan0008">改完后请立刻点下方「导出完整数据包」下载 JSON，再双击电脑上的「一键发布.cmd」完成发布——其他人刷新后才会更新。</li>
+                        <li data-page-node-id="oan0009">发布之前，<strong data-page-node-id="oan0010">不要点顶部的「更新云端数据」胶囊</strong>，那会用云端旧数据覆盖掉你刚改的内容。</li>
+                    </ol>
+                </div>
+            </div>
             <div class="card" id="data-sync-card" style="margin-bottom: 26px;" data-page-node-id="dsc0001">
                 <h2 class="card-title" data-page-node-id="dsc0002"><i class="fas fa-sync-alt" data-page-node-id="dsc0003"></i> 工作台数据同步</h2>
                 <p style="color: var(--text-light); line-height: 1.9; margin-bottom: 15px;" data-page-node-id="dsc0004">
@@ -4494,8 +4561,9 @@ header::after {
             calcInit();
             boardInit();
 
-            // 在线部署版首次打开：立即隐藏数据管理 tab（不管是否登录）
-            if (location.protocol !== 'file:') {
+            // 首次打开：先按当前身份决定要不要显示数据管理
+            // （已登录管理员的会话会在下面自动登录时由 applyRole 再修一次）
+            {
                 try {
                     var mt = document.getElementById('manage-tab'); if (mt) mt.style.display = 'none';
                     var mp = document.getElementById('manage-page'); if (mp) mp.style.display = 'none';
@@ -4716,6 +4784,23 @@ header::after {
         }
     });
 
+            // 数据管理密码：可见性切换 / 回车登录
+            var _apt = document.getElementById('admin-password-toggle');
+            if (_apt) _apt.addEventListener('click', function() {
+                var pi = document.getElementById('admin-password');
+                var ic = this.querySelector('i');
+                if (!pi) return;
+                if (pi.type === 'password') { pi.type = 'text'; if (ic) ic.className = 'fas fa-eye-slash'; }
+                else { pi.type = 'password'; if (ic) ic.className = 'fas fa-eye'; }
+            });
+            var _apw = document.getElementById('admin-password');
+            if (_apw) _apw.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') document.getElementById('login-btn').click();
+            });
+            // 「数据管理员登录 ⇄ 员工登录」切换
+            var _alt = document.getElementById('admin-login-toggle');
+            if (_alt) _alt.addEventListener('click', function() { _setAdminLoginMode(!_adminLoginMode); });
+
             // 标签切换
             document.querySelectorAll('.tab').forEach(tab => {
                 tab.addEventListener('click', function() {
@@ -4842,6 +4927,24 @@ header::after {
             } catch (e) { return null; }
         }
 
+        // ============== 在线版「数据管理」专用密码 ==============
+        // 只存哈希，源码里不出现明文；与本地版管理员是同一把钥匙
+        var LLM_ADMIN_PW_HASH = '66f0dfb540913062';
+        var _adminLoginMode = false;
+        function _setAdminLoginMode(on) {
+            _adminLoginMode = !!on;
+            var g = document.getElementById('admin-pwd-group');
+            var t = document.getElementById('admin-login-toggle');
+            var b = document.getElementById('login-btn');
+            var e1 = document.getElementById('password-error');
+            var e2 = document.getElementById('admin-password-error');
+            if (g) g.style.display = on ? '' : 'none';
+            if (t) t.textContent = on ? '‹ 返回员工登录' : '数据管理员登录 ›';
+            if (b) { b.disabled = false; b.textContent = on ? '进入数据管理' : '登录系统'; }
+            if (e1) e1.style.display = 'none';
+            if (e2) e2.style.display = 'none';
+        }
+
         // 在线部署版：唯一校验方式是「尝试用密码解密 data.enc.json」
         // 本地版（file://）：哈希比对（源码不含明文密码）
         function login() {
@@ -4891,8 +4994,20 @@ header::after {
                         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
                         .then(function (payload) { clearInterval(_tick); return _decryptPayload(password, payload); })
                         .then(function (data) {
-                            // 解密成功 → 密码正确 → 走普通用户登录
-                            _doLogin(password, false);
+                            // 解密成功 → 访问密码正确
+                            if (_adminLoginMode) {
+                                var _ap = (document.getElementById('admin-password').value || '').trim();
+                                if (_localPwHash(_ap) !== LLM_ADMIN_PW_HASH) {
+                                    var _ae = document.getElementById('admin-password-error');
+                                    if (_ae) { _ae.textContent = '数据管理密码错误，请向管理员确认'; _ae.style.display = 'block'; }
+                                    loginBtn.disabled = false;
+                                    loginBtn.textContent = '进入数据管理';
+                                    return;
+                                }
+                                _doLogin(password, true);
+                            } else {
+                                _doLogin(password, false);
+                            }
                             return data;
                         })
                         .catch(function (err) {
@@ -4960,7 +5075,7 @@ header::after {
 
             // 重置登录按钮状态
             const loginBtn = document.getElementById('login-btn');
-            if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = '登录系统'; }
+            if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = _adminLoginMode ? '进入数据管理' : '登录系统'; }
             const passwordInput = document.getElementById('password-input');
             if (passwordInput) passwordInput.value = '';
             const passwordInputAlt = document.getElementById('password');
@@ -5717,14 +5832,21 @@ header::after {
                                 <div id="nutrition-container-${index}">
                     `;
                     
-                    // 营养成分
+                    // 营养成分（数值/单位拆两个框；单位缺省时按成分自动带出）
                     variant.nutrition.forEach((item, nutIndex) => {
+                        var _sp = nutSplit(item.per100g);
+                        var _un = _sp.u || nutUnitOf(item.item);
                         html += `
-                            <div class="nutrition-row" id="nutrition-row-${index}-${nutIndex}">
+                            <div class="nutrition-row" id="nutrition-row-${index}-${nutIndex}" data-index="${index}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
                                 <input type="text" placeholder="项目" value="${item.item}" 
                                     class="nutrition-item" data-index="${index}" data-nut-index="${nutIndex}">
-                                <input type="text" placeholder="每100克" value="${item.per100g}" 
-                                    class="nutrition-per100g" data-index="${index}" data-nut-index="${nutIndex}">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value="${_sp.v}" 
+                                        class="nutrition-val" data-index="${index}" data-nut-index="${nutIndex}">
+                                    <input type="text" placeholder="单位" value="${_un}" 
+                                        class="nutrition-unit" data-index="${index}" data-nut-index="${nutIndex}">
+                                </div>
                                 <div class="nr-input-wrapper">
                                     <input type="text" placeholder="营养素参考值" value="${item.nr}" 
                                         class="nutrition-nr nr-input" data-index="${index}" data-nut-index="${nutIndex}">
@@ -5791,9 +5913,23 @@ header::after {
                 });
             });
             
-            // 绑定营养成分输入事件（实时更新）
-            document.querySelectorAll('.nutrition-item, .nutrition-per100g, .nutrition-nr').forEach(input => {
-                input.addEventListener('change', updateNutritionValue);
+            // 绑定营养成分表：单位默认值 / NRV 自动计算 / 方向键导航 / 拖动排序
+            // 用事件委托，动态 addNutrition 新增的行自动生效
+            document.querySelectorAll('[id^="nutrition-container-"]').forEach(function (nc) {
+                nc.addEventListener('input', function (e) {
+                    var row = e.target.closest ? e.target.closest('.nutrition-row') : null;
+                    if (!row) return;
+                    if (e.target.classList.contains('nutrition-item')) { nutAutoUnit(row); }
+                    nutAutoNr(row);
+                });
+                nc.addEventListener('change', function (e) {
+                    var row = e.target.closest ? e.target.closest('.nutrition-row') : null;
+                    if (!row) return;
+                    if (!e.target.classList.contains('nutrition-nr')) { nutAutoUnit(row); }
+                    nutAutoNr(row);
+                });
+                nc.addEventListener('keydown', nutritionCellNav);
+                bindNutritionDrag(nc);
             });
             
             // 绑定组合装搜索事件
@@ -6084,16 +6220,174 @@ header::after {
         }
 
         // 添加营养成分
+        /* ============ 营养成分表：NRV / 单位 / 拖动 / 方向键 ============ */
+        // 国标 NRV（GB 28050）：[参考值, 单位]
+        var NUT_NRV = {
+            '能量': [8400, '千焦'], '蛋白质': [60, '克'], '脂肪': [60, '克'],
+            '碳水化合物': [300, '克'], '钠': [2000, '毫克'], '膳食纤维': [25, '克'],
+            '维生素C': [100, '毫克'], '钾': [2000, '毫克'], '维生素E': [14, '毫克'],
+            '铁': [15, '毫克'], '维生素B6': [1.4, '毫克'], '镁': [300, '毫克']
+        };
+        // 已知成分的默认单位（可手改）
+        var NUT_UNIT = {
+            '能量': '千焦', '蛋白质': '克', '脂肪': '克', '碳水化合物': '克',
+            '钠': '毫克', '膳食纤维': '克', '糖': '克', '饱和脂肪': '克', '反式脂肪': '克',
+            '维生素C': '毫克', '钾': '毫克', '维生素E': '毫克α-生育酚当量',
+            '铁': '毫克', '维生素B6': '毫克', '镁': '毫克', '胆固醇': '毫克'
+        };
+        // 无国标 NRV 的成分：数值为 0 时参考值记 0%
+        var NUT_NO_NRV = ['糖', '饱和脂肪', '反式脂肪', '胆固醇'];
+
+        function nutKey(name) { return String(name == null ? '' : name).replace(/^[-\u2014\u2013\s]+/, '').trim(); }
+        function nutUnitOf(name) { return NUT_UNIT[nutKey(name)] || ''; }
+        // 把 "1165千焦" 拆成 {v:'1165', u:'千焦'}
+        function nutSplit(per100g) {
+            var s = String(per100g == null ? '' : per100g).trim();
+            var m = s.match(/^([\d.]+)\s*(.*)$/);
+            if (m) return { v: m[1], u: (m[2] || '').trim() };
+            return { v: s, u: '' };
+        }
+        // 返回：字符串=填入该值；''=清空（数值为空）；null=认不出，保留原值不动
+        function nutCalcNr(itemName, val, unit) {
+            var k = nutKey(itemName);
+            var v = String(val == null ? '' : val).trim();
+            if (v === '') return '';
+            var num = parseFloat(v);
+            if (isNaN(num)) return null;
+            var u = String(unit == null ? '' : unit).trim() || NUT_UNIT[k] || '';
+            var nrv = NUT_NRV[k];
+            if (nrv) {
+                if (u && u.indexOf(nrv[1]) !== 0) return null;   // 单位对不上 → 不算，避免算错
+                return String(Math.round(num / nrv[0] * 100));
+            }
+            if (NUT_NO_NRV.indexOf(k) >= 0 && num === 0) return '0';
+            return null;
+        }
+        // 单位框空着 → 按成分补默认单位（不覆盖手填的值）
+        function nutAutoUnit(row) {
+            var item = row.querySelector('.nutrition-item');
+            var unit = row.querySelector('.nutrition-unit');
+            if (!item || !unit) return;
+            var d = nutUnitOf(item.value);
+            if (d && !unit.value.trim()) unit.value = d;
+        }
+        // NRV 自动计算
+        function nutAutoNr(row) {
+            var item = row.querySelector('.nutrition-item');
+            var val = row.querySelector('.nutrition-val');
+            var unit = row.querySelector('.nutrition-unit');
+            var nr = row.querySelector('.nutrition-nr');
+            if (!item || !val || !nr) return;
+            var r = nutCalcNr(item.value, val.value, unit ? unit.value : '');
+            if (r === null) return;
+            if (r !== nr.value) nr.value = r;
+        }
+
+        /* ---- 方向键切换单元格（↑↓ 同列、←→ 同行，到边界即停）---- */
+        var NUT_COLS = ['.nutrition-item', '.nutrition-val', '.nutrition-unit', '.nutrition-nr'];
+        function nutritionCellNav(e) {
+            var input = e.target;
+            if (!input || !input.matches || !input.matches('.nutrition-item,.nutrition-val,.nutrition-unit,.nutrition-nr')) return;
+            var row = input.closest('.nutrition-row');
+            var container = row && row.parentNode;
+            if (!container) return;
+            var ci = -1;
+            for (var i = 0; i < NUT_COLS.length; i++) if (input.matches(NUT_COLS[i])) { ci = i; break; }
+            if (ci < 0) return;
+            var rows = Array.prototype.slice.call(container.querySelectorAll('.nutrition-row'));
+            var ri = rows.indexOf(row);
+            var key = e.key, target = null, col = ci;
+            if (key === 'ArrowUp' && ri > 0) target = rows[ri - 1];
+            else if (key === 'ArrowDown' && ri < rows.length - 1) target = rows[ri + 1];
+            else if (key === 'ArrowLeft' && ci > 0 && input.selectionStart === 0 && input.selectionEnd === 0) { target = row; col = ci - 1; }
+            else if (key === 'ArrowRight' && ci < NUT_COLS.length - 1 && input.selectionStart === input.value.length) { target = row; col = ci + 1; }
+            if (!target) return;
+            var next = target.querySelector(NUT_COLS[col]);
+            if (!next) return;
+            e.preventDefault();
+            next.focus();
+            try { next.select(); } catch (err) { }
+        }
+
+        /* ---- 拖动排序（只认把手，避免影响输入框选字）---- */
+        var _nutDragRow = null;
+        function _nutRowAt(container, y) {
+            var rows = Array.prototype.slice.call(container.querySelectorAll('.nutrition-row'));
+            for (var i = 0; i < rows.length; i++) {
+                var r = rows[i].getBoundingClientRect();
+                if (y >= r.top && y <= r.bottom) return rows[i];
+            }
+            var best = null, bd = Infinity;
+            rows.forEach(function (r) {
+                var rect = r.getBoundingClientRect();
+                var d = y < rect.top ? rect.top - y : y - rect.bottom;
+                if (d < bd) { bd = d; best = r; }
+            });
+            return best;
+        }
+        function bindNutritionDrag(container) {
+            container.addEventListener('dragstart', function (e) {
+                var handle = e.target && e.target.closest ? e.target.closest('.nutrition-drag') : null;
+                if (!handle) { e.preventDefault(); return; }
+                var row = handle.closest('.nutrition-row');
+                if (!row) return;
+                _nutDragRow = row;
+                row.classList.add('nut-dragging');
+                try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'nutrition'); } catch (err) { }
+            });
+            container.addEventListener('dragend', function () {
+                container.querySelectorAll('.nutrition-row').forEach(function (r) {
+                    r.classList.remove('nut-dragging', 'nut-drop-before', 'nut-drop-after');
+                });
+                _nutDragRow = null;
+            });
+            container.addEventListener('dragover', function (e) {
+                if (!_nutDragRow) return;
+                var row = _nutRowAt(container, e.clientY);
+                if (!row || row === _nutDragRow || row.parentNode !== _nutDragRow.parentNode) return;
+                e.preventDefault();
+                try { e.dataTransfer.dropEffect = 'move'; } catch (err) { }
+                var rect = row.getBoundingClientRect();
+                var before = (e.clientY - rect.top) < rect.height / 2;
+                container.querySelectorAll('.nutrition-row').forEach(function (r) {
+                    r.classList.remove('nut-drop-before', 'nut-drop-after');
+                });
+                row.classList.add(before ? 'nut-drop-before' : 'nut-drop-after');
+            });
+            container.addEventListener('drop', function (e) {
+                if (!_nutDragRow) return;
+                e.preventDefault();
+                var row = _nutRowAt(container, e.clientY);
+                if (row && row !== _nutDragRow && row.parentNode === _nutDragRow.parentNode) {
+                    var rect = row.getBoundingClientRect();
+                    var before = (e.clientY - rect.top) < rect.height / 2;
+                    if (before) row.parentNode.insertBefore(_nutDragRow, row);
+                    else row.parentNode.insertBefore(_nutDragRow, row.nextSibling);
+                    var idx = parseInt(_nutDragRow.dataset.index, 10);
+                    if (!isNaN(idx)) renumberNutritionRows(idx);
+                }
+                container.querySelectorAll('.nutrition-row').forEach(function (r) {
+                    r.classList.remove('nut-dragging', 'nut-drop-before', 'nut-drop-after');
+                });
+                _nutDragRow = null;
+            });
+        }
+
         function addNutrition(variantIndex) {
             const nutritionContainer = document.getElementById(`nutrition-container-${variantIndex}`);
             const nutIndex = nutritionContainer.querySelectorAll('.nutrition-row').length;
             
             const newNutritionHtml = `
-                <div class="nutrition-row" id="nutrition-row-${variantIndex}-${nutIndex}">
+                <div class="nutrition-row" id="nutrition-row-${variantIndex}-${nutIndex}" data-index="${variantIndex}">
+                    <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
                     <input type="text" placeholder="项目" value="" 
                         class="nutrition-item" data-index="${variantIndex}" data-nut-index="${nutIndex}">
-                    <input type="text" placeholder="每100克" value="" 
-                        class="nutrition-per100g" data-index="${variantIndex}" data-nut-index="${nutIndex}">
+                    <div class="nutrition-val-group">
+                        <input type="text" placeholder="数值" value="" 
+                            class="nutrition-val" data-index="${variantIndex}" data-nut-index="${nutIndex}">
+                        <input type="text" placeholder="单位" value="" 
+                            class="nutrition-unit" data-index="${variantIndex}" data-nut-index="${nutIndex}">
+                    </div>
                     <div class="nr-input-wrapper">
                         <input type="text" placeholder="营养素参考值" value="" 
                             class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="${nutIndex}">
@@ -6113,12 +6407,8 @@ header::after {
             // 更新删除按钮状态
             updateNutritionRemoveButtons(variantIndex);
             
-            // 绑定事件
+            // 事件已由 nutrition-container 上的委托统一处理，无需逐行绑定
             const newRow = document.getElementById(`nutrition-row-${variantIndex}-${nutIndex}`);
-            newRow.querySelectorAll('.nutrition-item, .nutrition-per100g, .nutrition-nr').forEach(input => {
-                input.addEventListener('change', updateNutritionValue);
-            });
-            
             newRow.querySelector('.remove-nutrition').addEventListener('click', function() {
                 removeNutrition(
                     parseInt(this.dataset.index), 
@@ -6147,7 +6437,7 @@ header::after {
                 row.id = `nutrition-row-${variantIndex}-${newNutIndex}`;
                 
                 // 更新输入框
-                row.querySelectorAll('.nutrition-item, .nutrition-per100g, .nutrition-nr').forEach(input => {
+                row.querySelectorAll('.nutrition-item, .nutrition-val, .nutrition-unit, .nutrition-nr').forEach(input => {
                     input.dataset.nutIndex = newNutIndex;
                 });
                 
@@ -6220,7 +6510,9 @@ header::after {
                 
                 nutritionRows.forEach(row => {
                     const item = row.querySelector('.nutrition-item').value.trim();
-                    const per100g = row.querySelector('.nutrition-per100g').value.trim();
+                    const _nv = (row.querySelector('.nutrition-val')?.value || '').trim();
+                    const _nu = (row.querySelector('.nutrition-unit')?.value || '').trim();
+                    const per100g = _nv ? (_nv + _nu) : '';
                     const nr = row.querySelector('.nutrition-nr').value.trim();
                     
                     if (item || per100g || nr) { // 至少有一个字段有值
@@ -7794,19 +8086,19 @@ function applyRole() {
         if (loginStatus) loginStatus.style.display = appData.isLoggedIn ? 'flex' : 'none';
         if (loginForm) loginForm.style.display = appData.isLoggedIn ? 'none' : '';
 
-        // 在线部署版：永远隐藏「数据管理」标签和功能卡片（员工用不上）
-        // 本地版（file://）保留，方便管理员编辑
-        if (location.protocol !== 'file:') {
+        // 「数据管理」只对管理员开放（本地版 file:// 同样按权限控制）
+        {
+            var _showManage = !!appData.isAdmin;
             var manageTab = document.getElementById('manage-tab');
-            if (manageTab) manageTab.style.display = 'none';
+            if (manageTab) manageTab.style.display = _showManage ? '' : 'none';
             var managePage = document.getElementById('manage-page');
-            if (managePage) managePage.style.display = 'none';
-            // 隐藏功能卡片里所有「数据管理」相关项
+            if (managePage) managePage.style.display = _showManage ? '' : 'none';
+            // 功能卡片里所有「数据管理」相关项
             var featCards = document.querySelectorAll('.feat-card');
             featCards.forEach(function (c) {
                 var t = c.textContent || '';
                 if (t.indexOf('数据管理') >= 0 || t.indexOf('导入数据') >= 0 || t.indexOf('导出数据包') >= 0) {
-                    c.style.display = 'none';
+                    c.style.display = _showManage ? '' : 'none';
                 }
             });
         }
@@ -12314,6 +12606,24 @@ function qcShrinkUntilFits(d, step, cb) {
     });
 }
 
+// 质检本地占用预警：70% 黄字、85% 红字（localStorage 是所有模块共享的）
+function qcUpdateStorageTip() {
+    var el = document.getElementById('qcStorageTip');
+    if (!el) return;
+    try {
+        var d = {
+            rows: QC_DATA.rows, fileName: QC_DATA.fileName, media: QC_DATA.media,
+            cellImageMap: QC_DATA.cellImageMap, savedAt: QC_DATA.savedAt
+        };
+        var kb = JSON.stringify(d).length / 1024;
+        var maxKb = QC_STORAGE_MAX_BYTES / 1024;
+        var pct = Math.round(kb / maxKb * 100);
+        el.textContent = kb.toFixed(0) + ' KB / ' + (QC_STORAGE_MAX_BYTES / 1048576).toFixed(0) + ' MB（' + pct + '%）';
+        el.style.color = pct >= 85 ? '#e24b4a' : (pct >= 70 ? '#ba7517' : '');
+        el.title = pct >= 85 ? '已接近本地存储上限，建议减少质检截图数量' : '';
+    } catch (e) { el.textContent = '—'; }
+}
+
 function qcReset(keepStored) {
     QC_DATA = { rows: [], fileName: '', media: {}, cellImageMap: {}, savedAt: '' };
     if (!keepStored) QCStorage.remove();
@@ -12534,6 +12844,7 @@ function qcUploadFile(file) {
                 if (nameEl) nameEl.textContent = '已导入：' + file.name + '（' + QC_DATA.rows.length + ' 条）';
                 var qcAfterSave = function (shrunk) {
                     QCStorage.save();
+                    qcUpdateStorageTip();
                     // 新导入后把筛选复位，并默认切到最新日期（多天/多月的数据不再混在一起展示）
                     QC_FILTER = { date: qcLatestDateKey(), who: '__all', item: '__all', content: '__all', kw: '' };
                     qcRenderAll();
@@ -13109,6 +13420,7 @@ function qcBindUpload() {
         QC_FILTER.date = qcLatestDateKey();
         qcRenderAll();
     }
+    qcUpdateStorageTip();   // 没有历史数据时也刷新一次，避免一直显示「—」
 }
 
 window.addEventListener('DOMContentLoaded', qcBindUpload);
