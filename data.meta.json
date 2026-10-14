@@ -1,21 +1,21 @@
 {
-  "_exportedAt": "2026-10-14T04:02:37.078Z",
+  "_exportedAt": "2026-10-14T07:52:41.337Z",
   "_fpv": 3,
   "_kdf": {
     "salt": "tM/3PYy2jsHvCSUklWfeoQ==",
     "iter": 100000
   },
   "_media": {
-    "n": 31,
-    "bytes": 1806765,
-    "mode": "pillow"
+    "n": 0,
+    "bytes": 0,
+    "mode": "none"
   },
   "_serviceCount": 212,
   "_aftersaleCount": 96,
-  "_productCount": 168,
+  "_productCount": 169,
   "_staffCount": 8,
   "_fp": {
-    "product": "037eef579142696d",
+    "product": "9edbaf20238974bb",
     "schedule": "ba7b4a9fd586821b",
     "perf": "60a81ff633ec3931",
     "qc": "b447cf7bcf756893"
