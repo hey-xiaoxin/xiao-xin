@@ -5271,7 +5271,7 @@ header::after {
                         <tr>
                             <td>${item.item}</td>
                             <td>${item.per100g}</td>
-                            <td>${item.nr}%</td>
+                            <td>${item.nr ? item.nr + '%' : ''}</td>
                         </tr>
                     `;
                 });
@@ -5712,7 +5712,9 @@ header::after {
                             { item: "能量", per100g: "", nr: "" },
                             { item: "蛋白质", per100g: "", nr: "" },
                             { item: "脂肪", per100g: "", nr: "" },
+                            { item: "-饱和脂肪", per100g: "", nr: "" },
                             { item: "碳水化合物", per100g: "", nr: "" },
+                            { item: "-糖", per100g: "", nr: "" },
                             { item: "钠", per100g: "", nr: "" }
                         ]
                     }
@@ -5915,22 +5917,7 @@ header::after {
             
             // 绑定营养成分表：单位默认值 / NRV 自动计算 / 方向键导航 / 拖动排序
             // 用事件委托，动态 addNutrition 新增的行自动生效
-            document.querySelectorAll('[id^="nutrition-container-"]').forEach(function (nc) {
-                nc.addEventListener('input', function (e) {
-                    var row = e.target.closest ? e.target.closest('.nutrition-row') : null;
-                    if (!row) return;
-                    if (e.target.classList.contains('nutrition-item')) { nutAutoUnit(row); }
-                    nutAutoNr(row);
-                });
-                nc.addEventListener('change', function (e) {
-                    var row = e.target.closest ? e.target.closest('.nutrition-row') : null;
-                    if (!row) return;
-                    if (!e.target.classList.contains('nutrition-nr')) { nutAutoUnit(row); }
-                    nutAutoNr(row);
-                });
-                nc.addEventListener('keydown', nutritionCellNav);
-                bindNutritionDrag(nc);
-            });
+            document.querySelectorAll('[id^="nutrition-container-"]').forEach(bindNutritionContainer);
             
             // 绑定组合装搜索事件
             document.getElementById('combo-search-btn')?.addEventListener('click', searchSingleProducts);
@@ -6063,13 +6050,18 @@ header::after {
                     <div class="form-group">
                         <label>营养成分表</label>
                         <div id="nutrition-container-${variantIndex}">
-                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-0">
-                                <input type="text" placeholder="项目" value="能量" 
+                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-0" data-index="${variantIndex}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
+                                <input type="text" placeholder="项目" value="能量"
                                     class="nutrition-item" data-index="${variantIndex}" data-nut-index="0">
-                                <input type="text" placeholder="每100克" value="" 
-                                    class="nutrition-per100g" data-index="${variantIndex}" data-nut-index="0">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value=""
+                                        class="nutrition-val" data-index="${variantIndex}" data-nut-index="0">
+                                    <input type="text" placeholder="单位" value=""
+                                        class="nutrition-unit" data-index="${variantIndex}" data-nut-index="0">
+                                </div>
                                 <div class="nr-input-wrapper">
-                                    <input type="text" placeholder="营养素参考值" value="" 
+                                    <input type="text" placeholder="营养素参考值" value=""
                                         class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="0">
                                     <span class="nr-symbol">%</span>
                                 </div>
@@ -6077,13 +6069,18 @@ header::after {
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
-                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-1">
-                                <input type="text" placeholder="项目" value="蛋白质" 
+                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-1" data-index="${variantIndex}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
+                                <input type="text" placeholder="项目" value="蛋白质"
                                     class="nutrition-item" data-index="${variantIndex}" data-nut-index="1">
-                                <input type="text" placeholder="每100克" value="" 
-                                    class="nutrition-per100g" data-index="${variantIndex}" data-nut-index="1">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value=""
+                                        class="nutrition-val" data-index="${variantIndex}" data-nut-index="1">
+                                    <input type="text" placeholder="单位" value=""
+                                        class="nutrition-unit" data-index="${variantIndex}" data-nut-index="1">
+                                </div>
                                 <div class="nr-input-wrapper">
-                                    <input type="text" placeholder="营养素参考值" value="" 
+                                    <input type="text" placeholder="营养素参考值" value=""
                                         class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="1">
                                     <span class="nr-symbol">%</span>
                                 </div>
@@ -6091,13 +6088,18 @@ header::after {
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
-                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-2">
-                                <input type="text" placeholder="项目" value="脂肪" 
+                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-2" data-index="${variantIndex}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
+                                <input type="text" placeholder="项目" value="脂肪"
                                     class="nutrition-item" data-index="${variantIndex}" data-nut-index="2">
-                                <input type="text" placeholder="每100克" value="" 
-                                    class="nutrition-per100g" data-index="${variantIndex}" data-nut-index="2">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value=""
+                                        class="nutrition-val" data-index="${variantIndex}" data-nut-index="2">
+                                    <input type="text" placeholder="单位" value=""
+                                        class="nutrition-unit" data-index="${variantIndex}" data-nut-index="2">
+                                </div>
                                 <div class="nr-input-wrapper">
-                                    <input type="text" placeholder="营养素参考值" value="" 
+                                    <input type="text" placeholder="营养素参考值" value=""
                                         class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="2">
                                     <span class="nr-symbol">%</span>
                                 </div>
@@ -6105,13 +6107,18 @@ header::after {
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
-                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-3">
-                                <input type="text" placeholder="项目" value="碳水化合物" 
+                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-3" data-index="${variantIndex}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
+                                <input type="text" placeholder="项目" value="-饱和脂肪"
                                     class="nutrition-item" data-index="${variantIndex}" data-nut-index="3">
-                                <input type="text" placeholder="每100克" value="" 
-                                    class="nutrition-per100g" data-index="${variantIndex}" data-nut-index="3">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value=""
+                                        class="nutrition-val" data-index="${variantIndex}" data-nut-index="3">
+                                    <input type="text" placeholder="单位" value=""
+                                        class="nutrition-unit" data-index="${variantIndex}" data-nut-index="3">
+                                </div>
                                 <div class="nr-input-wrapper">
-                                    <input type="text" placeholder="营养素参考值" value="" 
+                                    <input type="text" placeholder="营养素参考值" value=""
                                         class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="3">
                                     <span class="nr-symbol">%</span>
                                 </div>
@@ -6119,17 +6126,60 @@ header::after {
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
-                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-4">
-                                <input type="text" placeholder="项目" value="钠" 
+                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-4" data-index="${variantIndex}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
+                                <input type="text" placeholder="项目" value="碳水化合物"
                                     class="nutrition-item" data-index="${variantIndex}" data-nut-index="4">
-                                <input type="text" placeholder="每100克" value="" 
-                                    class="nutrition-per100g" data-index="${variantIndex}" data-nut-index="4">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value=""
+                                        class="nutrition-val" data-index="${variantIndex}" data-nut-index="4">
+                                    <input type="text" placeholder="单位" value=""
+                                        class="nutrition-unit" data-index="${variantIndex}" data-nut-index="4">
+                                </div>
                                 <div class="nr-input-wrapper">
-                                    <input type="text" placeholder="营养素参考值" value="" 
+                                    <input type="text" placeholder="营养素参考值" value=""
                                         class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="4">
                                     <span class="nr-symbol">%</span>
                                 </div>
                                 <button class="btn btn-small remove-nutrition" data-index="${variantIndex}" data-nut-index="4">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-5" data-index="${variantIndex}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
+                                <input type="text" placeholder="项目" value="-糖"
+                                    class="nutrition-item" data-index="${variantIndex}" data-nut-index="5">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value=""
+                                        class="nutrition-val" data-index="${variantIndex}" data-nut-index="5">
+                                    <input type="text" placeholder="单位" value=""
+                                        class="nutrition-unit" data-index="${variantIndex}" data-nut-index="5">
+                                </div>
+                                <div class="nr-input-wrapper">
+                                    <input type="text" placeholder="营养素参考值" value=""
+                                        class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="5">
+                                    <span class="nr-symbol">%</span>
+                                </div>
+                                <button class="btn btn-small remove-nutrition" data-index="${variantIndex}" data-nut-index="5">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                            <div class="nutrition-row" id="nutrition-row-${variantIndex}-6" data-index="${variantIndex}">
+                                <span class="nutrition-drag" draggable="true" title="按住拖动排序">&#9776;</span>
+                                <input type="text" placeholder="项目" value="钠"
+                                    class="nutrition-item" data-index="${variantIndex}" data-nut-index="6">
+                                <div class="nutrition-val-group">
+                                    <input type="text" placeholder="数值" value=""
+                                        class="nutrition-val" data-index="${variantIndex}" data-nut-index="6">
+                                    <input type="text" placeholder="单位" value=""
+                                        class="nutrition-unit" data-index="${variantIndex}" data-nut-index="6">
+                                </div>
+                                <div class="nr-input-wrapper">
+                                    <input type="text" placeholder="营养素参考值" value=""
+                                        class="nutrition-nr nr-input" data-index="${variantIndex}" data-nut-index="6">
+                                    <span class="nr-symbol">%</span>
+                                </div>
+                                <button class="btn btn-small remove-nutrition" data-index="${variantIndex}" data-nut-index="6">
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
@@ -6158,9 +6208,8 @@ header::after {
                 addNutrition(parseInt(this.dataset.index));
             });
             
-            document.querySelectorAll(`.nutrition-item, .nutrition-per100g, .nutrition-nr`).forEach(input => {
-                input.addEventListener('change', updateNutritionValue);
-            });
+            // 新容器同样绑定：单位/NRV 自动、方向键、拖动、% 显隐
+            bindNutritionContainer(document.getElementById(`nutrition-container-${variantIndex}`));
         }
 
         // 删除产品变体
@@ -6236,7 +6285,9 @@ header::after {
             '铁': '毫克', '维生素B6': '毫克', '镁': '毫克', '胆固醇': '毫克'
         };
         // 无国标 NRV 的成分：数值为 0 时参考值记 0%
-        var NUT_NO_NRV = ['糖', '饱和脂肪', '反式脂肪', '胆固醇'];
+        var NUT_NO_NRV = ['饱和脂肪', '反式脂肪', '胆固醇'];
+        /* 「糖」没有国标 NRV，且用户要求 NRV 留空、连 % 也不显示 */
+        var NUT_HIDE_NRV = ['糖'];
 
         function nutKey(name) { return String(name == null ? '' : name).replace(/^[-\u2014\u2013\s]+/, '').trim(); }
         function nutUnitOf(name) { return NUT_UNIT[nutKey(name)] || ''; }
@@ -6278,9 +6329,44 @@ header::after {
             var unit = row.querySelector('.nutrition-unit');
             var nr = row.querySelector('.nutrition-nr');
             if (!item || !val || !nr) return;
+            /* 糖没有国标 NRV：不自动算，并清掉从别的成分改名带来的残留值 */
+            if (!nutriHasNrv(item.value)) { if (nr.value) nr.value = ''; return; }
             var r = nutCalcNr(item.value, val.value, unit ? unit.value : '');
             if (r === null) return;
             if (r !== nr.value) nr.value = r;
+        }
+
+        // 糖没有国标 NRV：NRV 留空，% 符号也隐藏
+        function nutriHasNrv(name) { return NUT_HIDE_NRV.indexOf(nutKey(name)) < 0; }
+        function nutriSyncNrvSymbol(row) {
+            if (!row) return;
+            var item = row.querySelector('.nutrition-item');
+            var sym = row.querySelector('.nr-symbol');
+            if (!item || !sym) return;
+            sym.style.display = nutriHasNrv(item.value) ? '' : 'none';
+        }
+        // 绑定一个营养成分容器：单位/NRV 自动、方向键、拖动、% 显隐
+        // 事件委托 → 动态新增的行自动生效；加 __nutBound 防重复绑定
+        function bindNutritionContainer(nc) {
+            if (!nc || nc.__nutBound) return;
+            nc.__nutBound = true;
+            nc.addEventListener('input', function (e) {
+                var row = e.target.closest ? e.target.closest('.nutrition-row') : null;
+                if (!row) return;
+                if (e.target.classList.contains('nutrition-item')) { nutAutoUnit(row); nutriSyncNrvSymbol(row); }
+                nutAutoNr(row);
+            });
+            nc.addEventListener('change', function (e) {
+                var row = e.target.closest ? e.target.closest('.nutrition-row') : null;
+                if (!row) return;
+                if (!e.target.classList.contains('nutrition-nr')) { nutAutoUnit(row); }
+                if (e.target.classList.contains('nutrition-item')) { nutriSyncNrvSymbol(row); }
+                nutAutoNr(row);
+            });
+            nc.addEventListener('keydown', nutritionCellNav);
+            bindNutritionDrag(nc);
+            // 初始渲染：按成分决定 % 显隐
+            nc.querySelectorAll('.nutrition-row').forEach(nutriSyncNrvSymbol);
         }
 
         /* ---- 方向键切换单元格（↑↓ 同列、←→ 同行，到边界即停）---- */
@@ -6409,6 +6495,7 @@ header::after {
             
             // 事件已由 nutrition-container 上的委托统一处理，无需逐行绑定
             const newRow = document.getElementById(`nutrition-row-${variantIndex}-${nutIndex}`);
+            nutriSyncNrvSymbol(newRow);
             newRow.querySelector('.remove-nutrition').addEventListener('click', function() {
                 removeNutrition(
                     parseInt(this.dataset.index), 
