@@ -12982,6 +12982,12 @@ function qcUpdateStorageTip() {
             if (v && typeof v === 'object' && v.__m) imgN++;
             else if (typeof v === 'string' && v.indexOf('data:image/') === 0) { imgN++; inline = true; }
         });
+        if (!d.rows.length && !imgN) {
+            el.textContent = '本地暂无质检数据';
+            el.style.color = '';
+            el.title = '导入质检 Excel 后，数据自动保存到本地，关闭再打开会自动恢复';
+            return;
+        }
         if (inline) {
             var kb = json.length / 1024;
             var maxKb = QC_STORAGE_MAX_BYTES / 1024;
@@ -13309,6 +13315,7 @@ var QCStorage = {
 function qcClearStored() {
     if (!confirm('确定清除本地保存的质检数据？此操作不可撤销。')) return;
     qcReset(false);
+    qcUpdateStorageTip();   // 提示条同步回到「本地暂无质检数据」
     qcRenderAll();
     showNotification('已清除本地质检数据');
 }
