@@ -7806,41 +7806,91 @@ function exportShareHTML() {
 var FULL_DATA_KEYS = ['schedAppV2', 'liuliumei_products', 'liuliumei_tags',
                       'llm_board_data', 'llm_board_data_history', 'llm_perf_rule', 'llm_qc_v1'];
 
+// 质检图片已在 IndexedDB 里（localStorage 只剩 {__m} 引用）时，把字节拼回 base64，
+// 保证数据包格式与迁移前完全一致。字节不在本机（例如只同步过云端、从没在本机导入过）
+// 时该模块按原样透传（与迁移前行为一致），并提醒：未发布过的图不会进包。
+function _reinLineQcMedia(raw) {
+  var d;
+  try { d = JSON.parse(raw); } catch (e) { return Promise.resolve({ value: raw, warn: '' }); }
+  var media = (d && d.media) || {};
+  var keys = Object.keys(media);
+  var refs = keys.filter(function (k) { return media[k] && typeof media[k] === 'object' && media[k].__m; });
+  if (!refs.length) return Promise.resolve({ value: raw, warn: '' });
+  var missing = [];
+  var chain = Promise.resolve();
+  refs.forEach(function (k) {
+    chain = chain.then(function () {
+      return _idbGet(String(media[k].__m)).then(function (bytes) {
+        if (bytes && bytes.length) {
+          media[k] = 'data:' + _sniffMime(bytes) + ';base64,' + _bytesToB64(bytes);
+        } else {
+          missing.push(k);
+        }
+      });
+    });
+  });
+  return chain.then(function () {
+    if (missing.length) {
+      return {
+        value: raw,
+        warn: '⚠️ 有 ' + missing.length + ' 张质检图片不在本机缓存中，已按原样打包（这些图若从未发布过，不会包含在数据包里）'
+      };
+    }
+    return { value: JSON.stringify(d), warn: '' };
+  });
+}
+
+// 组装完整数据包（抽出来便于端到端测试；exportFullData 只负责下载）
+// 返回 { payload, parts, warn }
+function _buildFullExportPayload() {
+  var qcRaw = localStorage.getItem('llm_qc_v1');
+  var qcP = qcRaw ? _reinLineQcMedia(qcRaw) : Promise.resolve({ value: qcRaw, warn: '' });
+  return qcP.then(function (qc) {
+    var payload = { _fullExport: true, _exportedAt: new Date().toISOString() };
+    var parts = [];
+    FULL_DATA_KEYS.forEach(function (k) {
+      var v = (k === 'llm_qc_v1') ? qc.value : localStorage.getItem(k);
+      if (v !== null && v !== undefined) {
+        payload[k] = v;
+        try {
+          var j = JSON.parse(v);
+          if (k === 'schedAppV2' && j && j.people) parts.push('班表(' + j.people.length + '人)');
+          else if (k === 'liuliumei_products' && j) parts.push('产品(' + j.length + '个)');
+          else if (k === 'liuliumei_tags' && j) parts.push('标签(' + j.length + '个)');
+          else if (k === 'llm_qc_v1' && j && j.rows) parts.push('质检(' + j.rows.length + '条)');
+          else if (k === 'llm_board_data') parts.push('看板数据');
+          else if (k === 'llm_perf_rule') parts.push('绩效规则');
+          else if (k === 'llm_board_data_history') parts.push('看板历史');
+        } catch (e) {}
+      }
+    });
+    return { payload: payload, parts: parts, warn: qc.warn };
+  });
+}
+
 function exportFullData() {
   // 先把当前班表（含备注）的最新状态保存，确保导出的是最新数据
   try { doSave(); } catch (e) {}
 
-  var payload = { _fullExport: true, _exportedAt: new Date().toISOString() };
-  var parts = [];
-  FULL_DATA_KEYS.forEach(function (k) {
-    var v = localStorage.getItem(k);
-    if (v !== null) {
-      payload[k] = v;
-      try {
-        var j = JSON.parse(v);
-        if (k === 'schedAppV2' && j && j.people) parts.push('班表(' + j.people.length + '人)');
-        else if (k === 'liuliumei_products' && j) parts.push('产品(' + j.length + '个)');
-        else if (k === 'liuliumei_tags' && j) parts.push('标签(' + j.length + '个)');
-        else if (k === 'llm_qc_v1' && j && j.rows) parts.push('质检(' + j.rows.length + '条)');
-        else if (k === 'llm_board_data') parts.push('看板数据');
-        else if (k === 'llm_perf_rule') parts.push('绩效规则');
-        else if (k === 'llm_board_data_history') parts.push('看板历史');
-      } catch (e) {}
+  showNotification('正在打包数据…');
+  _buildFullExportPayload().then(function (r) {
+    if (!r.parts.length) {
+      alert('当前浏览器里没有可导出的工作台数据！\n请确认你是在平时维护数据的那台电脑/浏览器里操作。');
+      return;
     }
+    if (r.warn) showNotification(r.warn, 'error');
+
+    var payload = r.payload, parts = r.parts;
+    var blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '工作台数据包_' + dKey(new Date()) + '.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    showNotification('✅ 数据包已下载，包含：' + parts.join('、'));
+  }).catch(function (err) {
+    showNotification('导出失败：' + (err && err.message || err), 'error');
   });
-
-  if (!parts.length) {
-    alert('当前浏览器里没有可导出的工作台数据！\n请确认你是在平时维护数据的那台电脑/浏览器里操作。');
-    return;
-  }
-
-  var blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = '工作台数据包_' + dKey(new Date()) + '.json';
-  a.click();
-  URL.revokeObjectURL(a.href);
-  showNotification('✅ 数据包已下载，包含：' + parts.join('、'));
 }
 
 function importFullData(e) {
@@ -12473,6 +12523,10 @@ function _mediaIdOf(v) {
 function _idbOpen() {
     return new Promise(function (res, rej) {
         if (!self.indexedDB) { rej(new Error('此环境无 IndexedDB')); return; }
+        // 库版本保持 1：结构没有变化（还是 img 一个 store、值都是图片字节 Uint8Array）。
+        // 2026-10-19 起这个库同时放「云端 media/*.enc 的解密缓存」和「本地导入的质检图片」，
+        // 两者键名规则一致（= 明文 sha256 前 16 位），天然合并去重，所以不提版本号，
+        // 免得老标签页占用连接时触发无谓的 upgrade。onupgradeneeded 仍然只新增不删除。
         var req = indexedDB.open(_MEDIA_DB, 1);
         req.onupgradeneeded = function () {
             var db = req.result;
@@ -12480,6 +12534,8 @@ function _idbOpen() {
         };
         req.onsuccess = function () { res(req.result); };
         req.onerror = function () { rej(req.error || new Error('IndexedDB 打开失败')); };
+        // 老标签页还开着导致升级被挡住时明确失败，而不是无限等待
+        req.onblocked = function () { rej(new Error('IndexedDB 被其他标签页占用，请关闭旧页面后重试')); };
     });
 }
 function _idbGet(id) {
@@ -12497,6 +12553,84 @@ function _idbPut(id, data) {
     _idbOpen().then(function (db) {
         try { db.transaction('img', 'readwrite').objectStore('img').put(data, id); } catch (e) { }
     }).catch(function () { });
+}
+// 与 _idbPut 相同但返回 Promise（导入质检图片时要逐张确认落库才算成功）
+function _idbPutAsync(id, data) {
+    return _idbOpen().then(function (db) {
+        return new Promise(function (res, rej) {
+            try {
+                var t = db.transaction('img', 'readwrite').objectStore('img').put(data, id);
+                t.onsuccess = function () { res(true); };
+                t.onerror = function () { rej(t.error || new Error('IndexedDB 写入失败')); };
+            } catch (e) { rej(e); }
+        });
+    });
+}
+function _bufToHex(u8) {
+    var s = '';
+    for (var i = 0; i < u8.length; i++) { var h = (u8[i] & 0xff).toString(16); s += (h.length < 2 ? '0' + h : h); }
+    return s;
+}
+function _bytesToB64(u8) {
+    var CH = 0x8000, out = [];
+    for (var i = 0; i < u8.length; i += CH) {
+        out.push(String.fromCharCode.apply(null, u8.subarray(i, i + CH)));
+    }
+    return btoa(out.join(''));
+}
+// 从字节嗅探图片 MIME（导出数据包时要把 IndexedDB 里的字节拼回 data URI）
+function _sniffMime(u8) {
+    if (!u8 || !u8.length) return 'image/png';
+    if (u8[0] === 0xFF && u8[1] === 0xD8 && u8[2] === 0xFF) return 'image/jpeg';
+    if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4E && u8[3] === 0x47) return 'image/png';
+    if (u8[0] === 0x47 && u8[1] === 0x49 && u8[2] === 0x46) return 'image/gif';
+    if (u8[0] === 0x52 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x46 && u8.length > 12 &&
+        u8[8] === 0x57 && u8[9] === 0x45 && u8[10] === 0x42 && u8[11] === 0x50) return 'image/webp';
+    return 'image/png';
+}
+// 解析图片宽高（PNG IHDR / JPEG SOFn），失败返回 [0,0]；只用于引用里的提示字段
+function _imgDims(u8) {
+    if (!u8 || u8.length < 4) return [0, 0];
+    var u16 = function (i) { return (u8[i] << 8) | u8[i + 1]; };
+    var u32 = function (i) { return ((u8[i] << 24) | (u8[i + 1] << 16) | (u8[i + 2] << 8) | u8[i + 3]) >>> 0; };
+    if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4E && u8[3] === 0x47 && u8.length > 24) {
+        return [u32(16), u32(20)];
+    }
+    if (u8[0] === 0xFF && u8[1] === 0xD8 && u8[2] === 0xFF) {
+        var i = 2;
+        while (i < u8.length - 9) {
+            if (u8[i] !== 0xFF) { i++; continue; }
+            var m = u8[i + 1];
+            if (m === 0xD8 || m === 0x01 || (m >= 0xD0 && m <= 0xD7)) { i += 2; continue; }
+            if (m === 0xDA) break;   // SOS 之后是扫描数据，不会再出现 SOF
+            var len = u16(i + 2);
+            if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+                return [u16(i + 7), u16(i + 5)];   // [宽, 高]
+            }
+            i += 2 + len;
+        }
+    }
+    return [0, 0];
+}
+// 极端降级（无 Web Crypto 的环境）：64 位 FNV-1a 双通道，加 loc- 前缀避免与真实
+// sha256 id 撞名；同一浏览器内去重仍然有效（碰撞概率可忽略）
+function _fnv64(bytes) {
+    var h1 = 0x811c9dc5, h2 = (0x811c9dc5 ^ bytes.length) >>> 0;
+    for (var i = 0; i < bytes.length; i++) { h1 ^= bytes[i]; h1 = (h1 * 0x01000193) >>> 0; }
+    for (var j = 0; j < bytes.length; j += 7) { h2 ^= bytes[j]; h2 = (h2 * 0x01000193) >>> 0; }
+    var pad = function (x) { var s = (x >>> 0).toString(16); while (s.length < 8) s = '0' + s; return s; };
+    return 'loc' + pad(h1) + pad(h2);
+}
+// 图片 id = 明文的 sha256 前 16 位，与 build-data.js 命名 media/<id>.enc 完全一致：
+// 同一张图在「本地导入」「云端同步」两条路线上是同一个 id → IndexedDB 缓存天然合并、
+// 重复导入同一份 Excel 不产生新条目（内容寻址去重）。
+function _imgId(bytes) {
+    if (self.crypto && self.crypto.subtle && self.crypto.subtle.digest) {
+        return self.crypto.subtle.digest('SHA-256', bytes).then(function (h) {
+            return _bufToHex(new Uint8Array(h)).slice(0, 16);
+        });
+    }
+    return Promise.resolve(_fnv64(bytes));
 }
 
 // 图片解密用的是主包那把钥匙（登录/同步时已派生过）。没有就现场派生一次。
@@ -12523,6 +12657,11 @@ function _mediaLoad(id) {
     if (_MEDIA_PEND[id]) return _MEDIA_PEND[id];
     var p = _idbGet(id).then(function (cached) {
         if (cached) return cached;
+        if (location.protocol === 'file:') {
+            // 本地文件模式没有服务器可请求：字节不在本机缓存里就已无法补救，
+            // 直接给明确提示，不要去 fetch 一个注定失败的地址
+            throw new Error('本地缓存中没有这张质检图片（' + id + '）；当前是本地文件模式，无法从云端获取，请重新上传质检 Excel');
+        }
         return fetch('./media/' + id + '.enc', { cache: 'default' })
             .then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -12706,15 +12845,21 @@ document.addEventListener('click', function (e) {
 var QC_DATA = { rows: [], fileName: '', media: {}, cellImageMap: {}, savedAt: '' };
 var QC_FILTER = { date: '__all', who: '__all', item: '__all', content: '__all', kw: '' };
 var QC_STORAGE_KEY = 'llm_qc_v1';
-var QC_STORAGE_MAX_BYTES = 4 * 1024 * 1024; // 4MB 兜底（base64 图体积较大）
+var QC_STORAGE_MAX_BYTES = 4 * 1024 * 1024; // 仅兜底：IndexedDB 不可用、图片只能 base64 内嵌时
+var QC_IDB_MAX_BYTES = 64 * 1024 * 1024;    // IndexedDB 里本地导入质检图片的总字节预算
 
-/* ---------- 质检图片体积保护 ----------
-   localStorage 上限只有 ~5MB，质检截图转 base64 后很容易破 4MB。
-   QCStorage.save() 一旦超限就「丢图保数据」（imagesDropped:true），
-   导出包随之无图 → 发布后线上质检图全部消失（2026-09-29 事故）。
-   所以导入时先把过大的图等比缩小并转 JPEG，保证总量能存下。 */
+/* ---------- 质检图片存储（2026-10-19 起：字节进 IndexedDB）----------
+   老问题：截图转 base64 塞进 localStorage，5MB 共享上限一破就静默丢图
+   （2026-09-29 事故），质检容量被卡在 ~60 张。
+   现在：图片字节写 IndexedDB（llm_media_v1.img，与云端 media/*.enc 缓存同一个库），
+   localStorage 的 llm_qc_v1 里只留 {__m:id,w,h} 引用 → 文字部分只剩几 KB，
+   容量提升到几千张，彻底摆脱 5MB。id = 明文的 sha256 前 16 位，与
+   build-data.js 的 media/<id>.enc 命名一致，两条路线缓存自动合并。
+   导出数据包时再把字节拼回 base64（格式与以前完全一致），
+   build-data.js / 一键发布 / 发布闸门 / 红点指纹一行都不用改。 */
 var QC_SHRINK_STEPS = [[1500, 0.85], [1100, 0.72], [800, 0.6]]; // 逐档降级：[最长边(px), JPEG 质量]
 
+// localStorage 侧体积（引用形态下只有几 KB；只有 base64 兜底时才会超限）
 function qcPayloadTooBig(d) {
     try {
         return JSON.stringify({
@@ -12722,6 +12867,60 @@ function qcPayloadTooBig(d) {
             cellImageMap: d.cellImageMap, savedAt: d.savedAt
         }).length > QC_STORAGE_MAX_BYTES;
     } catch (e) { return false; }
+}
+
+// 仍在内嵌的 base64 图片的总字节（估算，按 base64 长度还原）；引用形态不计
+function qcMediaBytes(media) {
+    var t = 0;
+    Object.keys(media || {}).forEach(function (k) {
+        var v = media[k];
+        if (typeof v === 'string' && v.indexOf('data:image/') === 0) {
+            t += Math.floor((v.length - v.indexOf(',') - 1) * 3 / 4);
+        }
+    });
+    return t;
+}
+
+// 逐档降级直到「图片总字节」进 IndexedDB 预算；返回是否至少压过一轮
+function qcShrinkToBudget(d, step, cb) {
+    if (qcMediaBytes(d.media) <= QC_IDB_MAX_BYTES || step >= QC_SHRINK_STEPS.length) { cb(d, step > 0); return; }
+    var p = QC_SHRINK_STEPS[step];
+    qcShrinkMedia(d.media, p[0], p[1], function (m) {
+        d.media = m;
+        qcShrinkToBudget(d, step + 1, cb);
+    });
+}
+
+// 把 media 里的 base64 图片逐张写进 IndexedDB，值换成 {__m:id,w,h} 引用。
+// IDB 不可用时原样返回（ok:false），调用方走 base64 内嵌 + 旧体积保护。
+function qcMediaToIdb(media) {
+    media = media || {};
+    var keys = Object.keys(media);
+    var out = {};
+    keys.forEach(function (k) { out[k] = media[k]; });
+    var need = keys.filter(function (k) {
+        return typeof media[k] === 'string' && media[k].indexOf('data:image/') === 0;
+    });
+    if (!need.length) return Promise.resolve({ media: out, ok: true });
+    return _idbOpen().then(function () {
+        var chain = Promise.resolve();
+        need.forEach(function (k) {
+            chain = chain.then(function () {
+                var v = media[k];
+                var bytes = _b64ToBytes(v.slice(v.indexOf(',') + 1));
+                return _imgId(bytes).then(function (id) {
+                    return _idbPutAsync(id, bytes).then(function () {
+                        var dim = _imgDims(bytes);
+                        out[k] = { __m: id, w: dim[0], h: dim[1] };
+                    });
+                });
+            });
+        });
+        return chain.then(function () { return { media: out, ok: true }; });
+    }).catch(function (e) {
+        console.warn('[qc] IndexedDB 不可用，图片保持 base64 内嵌：' + (e && e.message || e));
+        return { media: media, ok: false };
+    });
 }
 
 function qcShrinkMedia(media, edge, quality, cb) {
@@ -12765,7 +12964,9 @@ function qcShrinkUntilFits(d, step, cb) {
     });
 }
 
-// 质检本地占用预警：70% 黄字、85% 红字（localStorage 是所有模块共享的）
+// 质检本地占用提示。两种形态：
+//   引用形态（正常）：localStorage 只有文字，图片在 IndexedDB → 显示文字 KB + 图片张数
+//   base64 兜底（IndexedDB 不可用）：老口径，4MB 上限进度条，70% 黄字、85% 红字
 function qcUpdateStorageTip() {
     var el = document.getElementById('qcStorageTip');
     if (!el) return;
@@ -12774,12 +12975,25 @@ function qcUpdateStorageTip() {
             rows: QC_DATA.rows, fileName: QC_DATA.fileName, media: QC_DATA.media,
             cellImageMap: QC_DATA.cellImageMap, savedAt: QC_DATA.savedAt
         };
-        var kb = JSON.stringify(d).length / 1024;
-        var maxKb = QC_STORAGE_MAX_BYTES / 1024;
-        var pct = Math.round(kb / maxKb * 100);
-        el.textContent = kb.toFixed(0) + ' KB / ' + (QC_STORAGE_MAX_BYTES / 1048576).toFixed(0) + ' MB（' + pct + '%）';
-        el.style.color = pct >= 85 ? '#e24b4a' : (pct >= 70 ? '#ba7517' : '');
-        el.title = pct >= 85 ? '已接近本地存储上限，建议减少质检截图数量' : '';
+        var json = JSON.stringify(d);
+        var imgN = 0, inline = false;
+        Object.keys(QC_DATA.media || {}).forEach(function (k) {
+            var v = QC_DATA.media[k];
+            if (v && typeof v === 'object' && v.__m) imgN++;
+            else if (typeof v === 'string' && v.indexOf('data:image/') === 0) { imgN++; inline = true; }
+        });
+        if (inline) {
+            var kb = json.length / 1024;
+            var maxKb = QC_STORAGE_MAX_BYTES / 1024;
+            var pct = Math.round(kb / maxKb * 100);
+            el.textContent = kb.toFixed(0) + ' KB / ' + (QC_STORAGE_MAX_BYTES / 1048576).toFixed(0) + ' MB（' + pct + '%）';
+            el.style.color = pct >= 85 ? '#e24b4a' : (pct >= 70 ? '#ba7517' : '');
+            el.title = pct >= 85 ? '已接近本地存储上限，建议减少质检截图数量' : '';
+        } else {
+            el.textContent = '文字 ' + (json.length / 1024).toFixed(0) + ' KB · 图片 ' + imgN + ' 张（IndexedDB）';
+            el.style.color = '';
+            el.title = '质检图片存放于 IndexedDB，不占用 localStorage 的 5MB 上限';
+        }
     } catch (e) { el.textContent = '—'; }
 }
 
@@ -13001,22 +13215,35 @@ function qcUploadFile(file) {
                 QC_DATA.rows = qcParseXlsx(wb);
                 QC_DATA.savedAt = new Date().toISOString();
                 if (nameEl) nameEl.textContent = '已导入：' + file.name + '（' + QC_DATA.rows.length + ' 条）';
-                var qcAfterSave = function (shrunk) {
+                var qcAfterSave = function (note) {
                     QCStorage.save();
                     qcUpdateStorageTip();
                     // 新导入后把筛选复位，并默认切到最新日期（多天/多月的数据不再混在一起展示）
                     QC_FILTER = { date: qcLatestDateKey(), who: '__all', item: '__all', content: '__all', kw: '' };
                     qcRenderAll();
-                    showNotification('质检数据已加载：' + QC_DATA.rows.length + ' 条'
-                        + (shrunk ? '（图片已压缩后保存）' : ''));
+                    showNotification('质检数据已加载：' + QC_DATA.rows.length + ' 条' + (note || ''));
                 };
-                // 体积保护：不先压缩就可能触发 QCStorage 的丢图降级，导出包就没图了
-                // 逐档降级，宁可画质低一点，也不能让图丢掉
-                if (qcPayloadTooBig(QC_DATA)) {
-                    qcShrinkUntilFits(QC_DATA, 0, function (d, shrunk) { qcAfterSave(shrunk); });
-                } else {
-                    qcAfterSave(false);
-                }
+                // 图片先进 IndexedDB（字节），localStorage 只留 {__m} 引用。
+                // 先压一档 1500px/85%（截图够用、单张体积小，media 文件也小），
+                // 总量仍超 64MB 预算再逐档降级。
+                qcShrinkMedia(QC_DATA.media, QC_SHRINK_STEPS[0][0], QC_SHRINK_STEPS[0][1], function (m) {
+                    QC_DATA.media = m;
+                    qcShrinkToBudget(QC_DATA, 1, function (d, shrunk) {
+                        var note = shrunk ? '（图片已压缩后保存）' : '';
+                        qcMediaToIdb(QC_DATA.media).then(function (r) {
+                            QC_DATA.media = r.media;
+                            if (r.ok) { qcAfterSave(note); return; }
+                            // IndexedDB 不可用：退回 base64 内嵌 + 旧的 localStorage 体积保护
+                            if (qcPayloadTooBig(QC_DATA)) {
+                                qcShrinkUntilFits(QC_DATA, 0, function (d2, s2) {
+                                    qcAfterSave(s2 ? '（图片已压缩后保存）' : '（当前环境不支持 IndexedDB，图片仅内嵌保存）');
+                                });
+                            } else {
+                                qcAfterSave('（当前环境不支持 IndexedDB，图片仅内嵌保存）');
+                            }
+                        });
+                    });
+                });
             } catch (err) {
                 if (nameEl) nameEl.textContent = '解析失败：' + err.message;
                 showNotification('质检数据解析失败', 'error');
@@ -13028,7 +13255,10 @@ function qcUploadFile(file) {
     qcExtractImages(file).then(handleMedia, function () { handleMedia({}); });
 }
 
-/* ---------- 本地存储 ---------- */
+/* ---------- 本地存储 ----------
+   正常形态（图片已进 IndexedDB）：media 里全是 {__m} 引用，payload 只有几 KB，
+   永远不会触发下面的丢图分支。丢图分支只在 IndexedDB 不可用、图片被迫 base64
+   内嵌时才可能命中。 */
 var QCStorage = {
     save: function () {
         try {
@@ -13579,7 +13809,32 @@ function qcBindUpload() {
         QC_FILTER.date = qcLatestDateKey();
         qcRenderAll();
     }
+    // IndexedDB 迁移（2026-10-19）：老数据 / 刚导入的数据包里 media 可能还是 base64
+    // 内嵌，这里静默迁进 IndexedDB 并改存引用，localStorage 立刻瘦下来（用户无感）
+    qcNormalizeStoredMedia();
     qcUpdateStorageTip();   // 没有历史数据时也刷新一次，避免一直显示「—」
+}
+
+// 启动归一化：localStorage 里的质检数据只要还有 base64 内嵌图，就迁进 IndexedDB
+// 并改存 {__m} 引用后重存。IDB 不可用则保持原状（旧行为）。
+function qcNormalizeStoredMedia() {
+    var stored = QCStorage.load();
+    if (!stored || !stored.media) return;
+    var hasInline = Object.keys(stored.media).some(function (k) {
+        return typeof stored.media[k] === 'string' && stored.media[k].indexOf('data:image/') === 0;
+    });
+    if (!hasInline) return;
+    qcMediaToIdb(stored.media).then(function (r) {
+        if (!r.ok) return;
+        if (QC_DATA.media && Object.keys(QC_DATA.media).length) {
+            Object.keys(r.media).forEach(function (k) { QC_DATA.media[k] = r.media[k]; });
+        } else {
+            QC_DATA.media = r.media;
+        }
+        QCStorage.save();
+        qcUpdateStorageTip();
+        console.log('[qc] 已将 ' + Object.keys(r.media).length + ' 张内嵌图片迁移到 IndexedDB');
+    });
 }
 
 window.addEventListener('DOMContentLoaded', qcBindUpload);
