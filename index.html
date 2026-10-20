@@ -886,17 +886,24 @@ header { position: relative; }
             font-weight: 600;
         }
 
-        /* 新增悬浮保存按钮样式 */
-        .floating-save-btn {
+        /* 悬浮操作区（保存 + 另存）：右下角固定，横排两个圆钮 */
+        .floating-actions {
             position: fixed;
             bottom: 30px;
             right: 30px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            z-index: 100;
+        }
+
+        /* 新增悬浮保存按钮样式 */
+        .floating-save-btn {
             width: 80px;
             height: 80px;
             border-radius: 50%;
             font-size: 0.9rem;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-            z-index: 100;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -904,7 +911,36 @@ header { position: relative; }
             padding: 0;
         }
 
+        /* 另存按钮：次要操作，玻璃质感（.btn.floating-saveas-btn 双类名提升特异性，
+           否则赢不过后面 .btn 的品牌渐变 !important） */
+        .floating-saveas-btn {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 0;
+        }
+        .btn.floating-saveas-btn {
+            background: rgba(13, 31, 36, 0.9) !important;
+            color: #8fe3d3 !important;
+            border: 1.5px solid rgba(20, 232, 194, 0.4) !important;
+        }
+        .btn.floating-saveas-btn:hover {
+            background: rgba(20, 232, 194, 0.18) !important;
+            color: #b5f2e4 !important;
+        }
+
         .floating-save-btn i {
+            font-size: 1.5rem;
+            margin-bottom: 5px;
+        }
+
+        .floating-saveas-btn i {
             font-size: 1.5rem;
             margin-bottom: 5px;
         }
@@ -1026,11 +1062,16 @@ header { position: relative; }
                 flex-direction: column;
             }
             
-            .floating-save-btn {
-                width: 70px;
-                height: 70px;
+            .floating-actions {
                 bottom: 20px;
                 right: 20px;
+                gap: 10px;
+            }
+
+            .floating-save-btn,
+            .floating-saveas-btn {
+                width: 70px;
+                height: 70px;
             }
             
             /* 移动端优化配料表显示 */
@@ -4455,7 +4496,10 @@ header::after {
                 <button class="btn btn-outline" id="back-to-search-btn" data-page-node-id="DMBUIcc9sVxWXGYT95jIZn"><i class="fas fa-arrow-left" data-page-node-id="kvlYW75ADam3uJPz0wN9JP"></i> 返回查询页面</button>
             </div>
 
-            <button class="btn floating-save-btn" id="floating-save-btn" style="display: none;" data-page-node-id="mv8FjG44SP64cruIuEND9G"><i class="fas fa-save" data-page-node-id="91YPTDoIc4NiMqJ4c8HJdt"></i> 保存</button>
+            <div class="floating-actions" id="floating-actions" style="display: none;">
+                <button class="btn floating-saveas-btn" id="floating-saveas-btn" title="把当前编辑内容存为新产品，原产品保持不变"><i class="fas fa-clone"></i> 另存</button>
+                <button class="btn floating-save-btn" id="floating-save-btn" data-page-node-id="mv8FjG44SP64cruIuEND9G"><i class="fas fa-save" data-page-node-id="91YPTDoIc4NiMqJ4c8HJdt"></i> 保存</button>
+            </div>
 
             <div class="designer-credit" data-page-node-id="oF1nW2iesVjyDklR4nlMJy">
                 网页设计与数据维护：溜小新 丨 系统版本：4.0
@@ -4901,6 +4945,7 @@ header::after {
             
             // 绑定悬浮保存按钮
             document.getElementById('floating-save-btn').addEventListener('click', saveProduct);
+            document.getElementById('floating-saveas-btn').addEventListener('click', saveAsProduct);
         }
 
         // 登录功能
@@ -5127,8 +5172,8 @@ header::after {
             // 已进入该版块 → 熄灭它的「有更新」红点
             try { _dotClearByTab(tabName); } catch (e) { }
             
-            // 隐藏悬浮保存按钮
-            document.getElementById('floating-save-btn').style.display = 'none';
+            // 隐藏悬浮操作区（保存 / 另存）
+            document.getElementById('floating-actions').style.display = 'none';
             
             // 如果切换到管理页面，根据权限更新视图
             if (tabName === 'manage') {
@@ -5750,9 +5795,9 @@ header::after {
             
             // 渲染编辑器
             renderProductEditor(newProduct);
-            
-            // 显示悬浮保存按钮
-            document.getElementById('floating-save-btn').style.display = 'flex';
+
+            // 显示悬浮操作区（保存 / 另存）
+            document.getElementById('floating-actions').style.display = 'flex';
         }
 
         // 编辑产品
@@ -5763,9 +5808,9 @@ header::after {
                 // 保存原始产品数据用于同步更新
                 appData.originalProductData = JSON.parse(JSON.stringify(product));
                 renderProductEditor(product);
-                
-                // 显示悬浮保存按钮
-                document.getElementById('floating-save-btn').style.display = 'flex';
+
+                // 显示悬浮操作区（保存 / 另存）
+                document.getElementById('floating-actions').style.display = 'flex';
             }
         }
 
@@ -6237,10 +6282,18 @@ header::after {
         // 删除产品变体
         function removeVariant(index) {
             document.getElementById(`variant-${index}`).remove();
-            
+
+            // 同步删除内存中对应的变体：组合装「添加单品」（addToCombo）会全量
+            // 重渲染编辑器，不同步的话刚删掉的口味会被内存旧数据复活
+            // （DOM 索引与内存 variants 始终一一对应：新增只追加在末尾）
+            const currentProduct = appData.products.find(p => p.id === appData.currentProductId);
+            if (currentProduct && currentProduct.variants.length > index) {
+                currentProduct.variants.splice(index, 1);
+            }
+
             // 重新编号
             renumberVariants();
-            
+
             // 更新所有删除按钮状态
             updateRemoveButtons();
         }
@@ -6583,47 +6636,41 @@ header::after {
         }
 
         // 保存产品信息（增强空单品过滤）
-        function saveProduct() {
-            if (appData.currentProductId === null) return;
-            
-            // 查找产品索引
-            const productIndex = appData.products.findIndex(p => p.id === appData.currentProductId);
-            const isNewProduct = productIndex === -1;
-            
-            // 创建产品数据对象
+        // 从编辑器表单收集产品数据（保存 / 另存为共用）
+        // 返回 { name, type, variants, tags }；校验不通过时已提示并返回 null
+        function collectProductForm() {
             const productData = {
-                id: appData.currentProductId,
                 name: document.getElementById('product-name').value,
                 type: document.getElementById('product-type').value,
                 variants: [],
                 tags: []
             };
-            
+
             // 获取选中的标签
             document.querySelectorAll('.tag-option.selected').forEach(option => {
                 productData.tags.push(option.dataset.tag);
             });
-            
+
             // 获取变体信息
             const variantsCount = document.querySelectorAll('#variants-container > div').length;
             let emptyVariantsCount = 0;
-            
+
             for (let i = 0; i < variantsCount; i++) {
                 const flavor = document.getElementById(`flavor-${i}`)?.value?.trim() || '';
                 const ingredients = document.getElementById(`ingredients-${i}`)?.value?.trim() || '';
-                
+
                 // 获取营养成分
                 const nutrition = [];
                 const nutritionRows = document.querySelectorAll(`#nutrition-container-${i} .nutrition-row`);
                 let hasNutritionData = false;
-                
+
                 nutritionRows.forEach(row => {
                     const item = row.querySelector('.nutrition-item').value.trim();
                     const _nv = (row.querySelector('.nutrition-val')?.value || '').trim();
                     const _nu = (row.querySelector('.nutrition-unit')?.value || '').trim();
                     const per100g = _nv ? (_nv + _nu) : '';
                     const nr = row.querySelector('.nutrition-nr').value.trim();
-                    
+
                     if (item || per100g || nr) { // 至少有一个字段有值
                         nutrition.push({
                             item: item,
@@ -6633,10 +6680,10 @@ header::after {
                         hasNutritionData = true;
                     }
                 });
-                
+
                 // 检查是否为空变体（所有字段都为空）
                 const isEmptyVariant = !flavor && !ingredients && !hasNutritionData;
-                
+
                 if (!isEmptyVariant) {
                     // 只有当变体不为空时才保存
                     productData.variants.push({
@@ -6648,27 +6695,43 @@ header::after {
                     emptyVariantsCount++;
                 }
             }
-            
+
             // 如果没有任何有效变体，提示用户
             if (productData.variants.length === 0) {
                 showNotification('请至少添加一个有效的产品变体', 'error');
-                return;
+                return null;
             }
-            
+
             // 对于组合装，增强空单品过滤逻辑
             if (productData.type === 'combo') {
                 // 显示移除空单品的通知（如果有）
                 if (emptyVariantsCount > 0) {
                     showNotification(`已自动移除 ${emptyVariantsCount} 个空单品`);
                 }
-                
+
                 // 确保至少保留一个有效单品
                 if (productData.variants.length === 0) {
                     showNotification('组合装至少需要包含一个有效的单品', 'error');
-                    return;
+                    return null;
                 }
             }
-            
+
+            return productData;
+        }
+
+        function saveProduct() {
+            if (appData.currentProductId === null) return;
+
+            // 收集表单数据（含校验）
+            const productData = collectProductForm();
+            if (!productData) return;
+
+            // 查找产品索引
+            const productIndex = appData.products.findIndex(p => p.id === appData.currentProductId);
+            const isNewProduct = productIndex === -1;
+
+            productData.id = appData.currentProductId;
+
             // 保存产品数据
             if (isNewProduct) {
                 appData.products.push(productData);
@@ -6712,6 +6775,63 @@ header::after {
             showNotification(`产品 "${productData.name}" 已保存`);
         }
 
+        // 另存为：把当前编辑内容存为一个新产品，原产品保持进入编辑时的状态
+        // 典型场景：组合装1（ABCDE）→ 改名组合装2、口味E换成F → 另存，
+        // 原组合装1 的 ABCDE 不动，列表里多出一个 ABCDF 的组合装2。
+        function saveAsProduct() {
+            if (appData.currentProductId === null) return;
+
+            // 收集当前表单（与保存同一套逻辑，含空变体校验）
+            const form = collectProductForm();
+            if (!form) return;
+
+            const editingId = appData.currentProductId;
+            const origin = appData.products.find(p => p.id === editingId);
+
+            // 原产品还原：组合装添加单品（addToCombo）等操作会直接改内存里的
+            // variants，另存为要求「原产品不动」，故用进入编辑时的快照还原
+            if (origin && appData.originalProductData) {
+                const idx = appData.products.findIndex(p => p.id === editingId);
+                appData.products[idx] = JSON.parse(JSON.stringify(appData.originalProductData));
+            } else {
+                // 从「添加产品」入口进来的占位产品：用户选择另存而非保存，移除占位
+                appData.products = appData.products.filter(p => p.id !== editingId);
+            }
+
+            // 生成新 id
+            const newId = appData.products.length > 0
+                ? Math.max(...appData.products.map(p => p.id)) + 1
+                : 1;
+            form.id = newId;
+
+            // 名称与已有产品重名时要求改名（预填「-副本」），避免列表里分不清
+            if (appData.products.some(p => p.name === form.name)) {
+                const newName = (prompt(`已存在同名产品「${form.name}」，请为另存的新产品输入名称：`, form.name + '-副本') || '').trim();
+                if (!newName) {
+                    showNotification('已取消另存', 'error');
+                    return;
+                }
+                if (appData.products.some(p => p.name === newName)) {
+                    showNotification(`名称「${newName}」仍与已有产品重复，请换一个`, 'error');
+                    return;
+                }
+                form.name = newName;
+            }
+
+            appData.products.push(form);
+            localStorage.setItem('liuliumei_products', JSON.stringify(appData.products));
+
+            // 编辑态切换到新产品，便于接着微调后点「保存」
+            appData.currentProductId = newId;
+            appData.originalProductData = JSON.parse(JSON.stringify(form));
+
+            renderProductList();
+            renderProductDisplay();
+            renderProductEditor(form);
+
+            showNotification(`已另存为新产品「${form.name}」，原产品未改动`);
+        }
+
         // 删除产品
         function deleteProduct(productId) {
             const product = appData.products.find(p => p.id === productId);
@@ -6728,7 +6848,7 @@ header::after {
                         </div>
                     `;
                     document.getElementById('save-product-btn').style.display = 'none';
-                    document.getElementById('floating-save-btn').style.display = 'none';
+                    document.getElementById('floating-actions').style.display = 'none';
                 }
                 
                 // 保存到本地存储
