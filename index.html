@@ -3355,7 +3355,7 @@ table:not(.schedule-table) td { border-bottom-color: rgba(20, 232, 194, .12) !im
 #boardMonth option { background: #0a161b !important; color: #cfe9e1 !important; }
 /* 看板/计算/质检工具栏下拉：统一深色玻璃，避免原生外观不一致/看不清字 */
 .board-toolbar select, .calc-toolbar select, .qc-filter select {
-    background: rgba(255, 255, 255, .06) !important;
+    background-color: #10262c !important;   /* 不透明深底：半透明在 Edge/Windows 上退化为系统白底；用 background-color 而非简写，避免清掉下方自绘箭头 */
     color: var(--text) !important;
     border: 1px solid rgba(20, 232, 194, .28) !important;
     border-radius: 10px !important;
@@ -3479,6 +3479,28 @@ table:not(.schedule-table) td { border-bottom-color: rgba(20, 232, 194, .12) !im
 .tag-display { color: var(--text-light) !important; }
 .combo-item { color: var(--text) !important; }
 .combo-item:hover { background: rgba(20, 232, 194, .1) !important; }
+
+/* 14.7 表单控件深色修正 */
+/* 根因：4. 输入框 的全局规则给 select 设了半透明背景 rgba(255,255,255,.06)。
+   Edge/Windows 对半透明背景的 <select> 退化为系统白底绘制（截图实测），
+   option 列表随系统色 → 白底白字完全看不清。改为不透明深底彻底解决；
+   顺带把旧浅色样式遗留的组合装区块（#f8fdf8 / #e8f5e9）深色化。 */
+select {
+    background-color: #10262c !important;
+    color: var(--text) !important;
+    color-scheme: dark;
+}
+select option {
+    background: #10262c;
+    color: #d6fffa;
+}
+input::placeholder, textarea::placeholder { color: var(--faint) !important; opacity: 1; }
+.combo-selector { background: rgba(13, 31, 36, .55) !important; border: 1px solid rgba(20, 232, 194, .16) !important; }
+.combo-selector input { background-color: #10262c !important; }
+.combo-search-results { background: rgba(13, 31, 36, .5) !important; border-color: rgba(20, 232, 194, .22) !important; }
+.combo-selected { background: rgba(20, 232, 194, .08) !important; }
+.combo-selected-item { background: rgba(20, 232, 194, .16) !important; color: var(--text) !important; border: 1px solid rgba(20, 232, 194, .26) !important; }
+.combo-selected-item button { color: var(--text) !important; }
 
 /* 14.6 名称卡片：霓虹光带（方案 C） */
 header {
