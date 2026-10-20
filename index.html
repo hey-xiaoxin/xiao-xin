@@ -11129,6 +11129,20 @@ function wavg(arr, metric, weight) {
     });
     return sw > 0 ? sv / sw : null;
 }
+/* 转化率统一口径：Σ促成下单 ÷ Σ询单人数，**只统计「有下单数据」的平台**。
+   天猫旗舰店的「询单最终下单人数」源表整列是「延时统计」（→ orders 为 null），
+   若把它的询单算进分母、订单按 0 算，会系统性地把每个人的转化率压低 4~6 个百分点，故整行剔除。
+   全无下单数据时返回 null。 */
+function convAgg(arr) {
+    var inq = 0, ord = 0, has = false;
+    (arr || []).forEach(function (r) {
+        var o = r.orders, i = r.inquiries;
+        if (o === null || o === undefined || isNaN(o)) return;
+        if (i === null || i === undefined || isNaN(i) || i <= 0) return;
+        inq += i; ord += o; has = true;
+    });
+    return (has && inq > 0) ? ord / inq : null;
+}
 function pctTxt(v, d) { return v === null || v === undefined ? '<span class="flat">—</span>' : fmtNum(v * 100, d === undefined ? 1 : d) + '%'; }
 function intTxt(v) { return v === null || v === undefined ? '<span class="flat">—</span>' : fmtNum(v, 0); }
 function secTxt(v) {
@@ -11165,7 +11179,7 @@ function boardSummary() {
         var sal = sumOf(arr, function (r) { return r.sales; });
         var rev = sumOf(arr, function (r) { return r.reviews; });
         all.receptions += rec || 0; all.inquiries += inq || 0; all.orders += ord || 0; all.sales += sal || 0; all.reviews += rev || 0;
-        var conv = (inq && ord !== null) ? ord / inq : null;
+        var conv = convAgg(arr);
         var sat = wavg(arr, 'satisfaction', function (r) { return r.reviews || r.receptions || 1; });
         var resp = wavg(arr, 'respSec', function (r) { return r.receptions || 1; });
         body += '<tr>' + '<td class="txt"><strong>' + escAttr(p) + '</strong></td>' +
@@ -11175,7 +11189,7 @@ function boardSummary() {
             '<td class="' + (conv !== null && conv < perfRule.redline.convMin ? 'warn-cell' : '') + '">' + pctTxt(conv) + '</td>' +
             '<td>' + pctTxt(sat) + '</td><td>' + secTxt(resp) + '</td><td>' + intTxt(rev) + '</td></tr>';
     });
-    var allConv = all.inquiries ? all.orders / all.inquiries : null;
+    var allConv = convAgg(rows);
     var allSat = wavg(rows, 'satisfaction', function (r) { return r.reviews || r.receptions || 1; });
     var allResp = wavg(rows, 'respSec', function (r) { return r.receptions || 1; });
     body += '<tr class="total-row"><td class="txt">合计 / 加权</td><td>' + Object.keys(byPlat).length + ' 平台</td>' +
@@ -11186,7 +11200,7 @@ function boardSummary() {
     var kpi = '';
     kpi += kpiBox('总接待量', fmtNum(all.receptions, 0), '人次');
     kpi += kpiBox('总销售额', '¥' + fmtNum(all.sales, 0), (d.platforms || []).length + ' 个平台合计');
-    kpi += kpiBox('整体转化率', pctTxt(allConv), '订单 ÷ 询单', allConv !== null && allConv < perfRule.redline.convMin ? 'red' : '');
+    kpi += kpiBox('整体转化率', pctTxt(allConv), '订单÷询单（不含无下单数据平台）', allConv !== null && allConv < perfRule.redline.convMin ? 'red' : '');
     kpi += kpiBox('加权满意率', pctTxt(allSat), '按评价量加权');
     kpi += kpiBox('加权平均响应', allResp === null ? '—' : fmtNum(allResp, 1) + 's', '按接待量加权', allResp !== null && allResp > perfRule.redline.respMax ? 'amber' : '');
     document.getElementById('summaryKpi').innerHTML = kpi;
@@ -11213,7 +11227,7 @@ function boardRank() {
             receptions: rec, inquiries: inq, orders: ord,
             sales: sumOf(arr, function (r) { return r.sales; }),
             reviews: sumOf(arr, function (r) { return r.reviews; }),
-            convRate: (inq && ord !== null) ? ord / inq : null,
+            convRate: convAgg(arr),
             // 满意率：简单平均。拼多多等不在 satPlat 白名单的平台完全不参与（不进分母）；
             // 白名单内评价数为 0 / 满意率空白的平台按 0% 计入分母
             satisfaction: (function () {
@@ -11450,10 +11464,8 @@ function boardPerf() {
         var respCoef = null;
         if (resp !== null) respCoef = resp <= R.respTarget ? 1 : Math.max(0, 1 - (resp - R.respTarget) / R.respTarget);
         var respScore = respCoef === null ? null : respCoef * R.respWeight;
-        // 转化率：按询单量加权
-        var inq = sumOf(arr, function (r) { return r.inquiries; });
-        var ord = sumOf(arr, function (r) { return r.orders; });
-        var conv = (inq && ord !== null) ? ord / inq : null;
+        // 转化率：Σ促成下单 ÷ Σ询单人数，只统计有下单数据的平台（天猫该列为「延时统计」，整行不计）
+        var conv = convAgg(arr);
         var convCoef = null;
         if (conv !== null) {
             convCoef = 0;
