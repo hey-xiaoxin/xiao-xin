@@ -1,5 +1,5 @@
 {
-  "_exportedAt": "2026-10-20T08:54:41.364Z",
+  "_exportedAt": "2026-10-21T00:53:32.595Z",
   "_fpv": 3,
   "_kdf": {
     "salt": "tM/3PYy2jsHvCSUklWfeoQ==",
@@ -12,10 +12,10 @@
   },
   "_serviceCount": 213,
   "_aftersaleCount": 96,
-  "_productCount": 172,
+  "_productCount": 173,
   "_staffCount": 8,
   "_fp": {
-    "product": "c7ce7378bfc51356",
+    "product": "82553fab6ff7d8c5",
     "schedule": "84b36d0d1cea1070",
     "perf": "865d137f4ca0039a",
     "qc": "c989d0956b57833d"
