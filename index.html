@@ -11290,7 +11290,7 @@ function intTxt(v) { return v === null || v === undefined ? '<span class="flat">
 function secTxt(v) {
     if (v === null || v === undefined) return '<span class="flat">—</span>';
     var cls = v > perfRule.redline.respMax ? 'warn-cell' : '';
-    return '<span class="' + cls + '">' + fmtNum(v, 1) + 's</span>';
+    return '<span class="' + cls + '">' + fmtNum(v, 2) + 's</span>';
 }
 function moneyTxt(v) { return v === null || v === undefined ? '<span class="flat">—</span>' : '¥' + fmtNum(v, 0); }
 function nameCell(real, nick) {
@@ -11328,7 +11328,7 @@ function boardSummary() {
             '<td>' + arr.length + '</td>' +
             '<td>' + intTxt(rec) + '</td><td>' + intTxt(inq) + '</td><td>' + intTxt(ord) + '</td>' +
             '<td>' + moneyTxt(sal) + '</td>' +
-            '<td class="' + (conv !== null && conv < perfRule.redline.convMin ? 'warn-cell' : '') + '">' + pctTxt(conv) + '</td>' +
+            '<td class="' + (conv !== null && conv < perfRule.redline.convMin ? 'warn-cell' : '') + '">' + pctTxt(conv, 2) + '</td>' +
             '<td>' + pctTxt(sat) + '</td><td>' + secTxt(resp) + '</td><td>' + intTxt(rev) + '</td></tr>';
     });
     var allConv = convAgg(rows);
@@ -11336,15 +11336,15 @@ function boardSummary() {
     var allResp = wavg(rows, 'respSec', function (r) { return r.receptions || 1; });
     body += '<tr class="total-row"><td class="txt">合计 / 加权</td><td>' + Object.keys(byPlat).length + ' 平台</td>' +
         '<td>' + intTxt(all.receptions) + '</td><td>' + intTxt(all.inquiries) + '</td><td>' + intTxt(all.orders) + '</td>' +
-        '<td>' + moneyTxt(all.sales) + '</td><td>' + pctTxt(allConv) + '</td><td>' + pctTxt(allSat) + '</td><td>' + secTxt(allResp) + '</td><td>' + intTxt(all.reviews) + '</td></tr>';
+        '<td>' + moneyTxt(all.sales) + '</td><td>' + pctTxt(allConv, 2) + '</td><td>' + pctTxt(allSat) + '</td><td>' + secTxt(allResp) + '</td><td>' + intTxt(all.reviews) + '</td></tr>';
     document.getElementById('summaryTable').innerHTML = head + '<tbody>' + body + '</tbody>';
 
     var kpi = '';
     kpi += kpiBox('总接待量', fmtNum(all.receptions, 0), '人次');
     kpi += kpiBox('总销售额', '¥' + fmtNum(all.sales, 0), (d.platforms || []).length + ' 个平台合计');
-    kpi += kpiBox('整体转化率', pctTxt(allConv), '订单÷询单（不含无下单数据平台）', allConv !== null && allConv < perfRule.redline.convMin ? 'red' : '');
+    kpi += kpiBox('整体转化率', pctTxt(allConv, 2), '订单÷询单（不含无下单数据平台）', allConv !== null && allConv < perfRule.redline.convMin ? 'red' : '');
     kpi += kpiBox('加权满意率', pctTxt(allSat), '按评价量加权');
-    kpi += kpiBox('加权平均响应', allResp === null ? '—' : fmtNum(allResp, 1) + 's', '按接待量加权', allResp !== null && allResp > perfRule.redline.respMax ? 'amber' : '');
+    kpi += kpiBox('加权平均响应', allResp === null ? '—' : fmtNum(allResp, 2) + 's', '按接待量加权', allResp !== null && allResp > perfRule.redline.respMax ? 'amber' : '');
     document.getElementById('summaryKpi').innerHTML = kpi;
 }
 function kpiBox(label, value, sub, cls) {
@@ -11416,7 +11416,7 @@ function boardRank() {
         return '<tr><td class="txt">' + rankStr + '</td>' + nameCell(x.real, x.nick) +
             '<td>' + x.platforms + '</td>' + plainCell(intTxt(x.receptions)) +
             plainCell(moneyTxt(x.sales)) +
-            '<td class="' + (x.convRate !== null && x.convRate < perfRule.redline.convMin ? 'warn-cell' : '') + '">' + pctTxt(x.convRate) + '</td>' +
+            '<td class="' + (x.convRate !== null && x.convRate < perfRule.redline.convMin ? 'warn-cell' : '') + '">' + pctTxt(x.convRate, 2) + '</td>' +
             '<td>' + pctTxt(x.satisfaction) + '</td><td>' + secTxt(x.respSec) + '</td></tr>';
     }).join('');
     document.getElementById('rankTable').innerHTML = head + '<tbody>' + (body || '<tr><td class="txt" colspan="8">该平台暂无数据</td></tr>') + '</tbody>';
@@ -11657,8 +11657,8 @@ function boardPerf() {
         var main = '<tr class="perf-main" data-idx="' + i + '"><td class="txt"><span class="perf-toggle" data-target="' + expId + '">▶</span></td>' +
             '<td class="txt">' + rankBadge(i + 1) + '</td>' + nameCell(x.real, x.nick) +
             '<td>' + (x.satScore === null ? '—' : fmtNum(x.satScore, 2)) + '</td>' +
-            '<td>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 1)) + '<span class="cell-sub"> (' + (x.resp === null ? '—' : fmtNum(x.resp, 1) + 's') + ')</span></td>' +
-            '<td>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 1)) + '<span class="cell-sub"> (' + pctTxt(x.conv) + ')</span></td>' +
+            '<td>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 1)) + '<span class="cell-sub"> (' + (x.resp === null ? '—' : fmtNum(x.resp, 2) + 's') + ')</span></td>' +
+            '<td>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 1)) + '<span class="cell-sub"> (' + pctTxt(x.conv, 2) + ')</span></td>' +
             '<td>' + fmtNum(x.praiseScore, 1) + '</td><td>' + fmtNum(x.costScore, 1) + '</td>' +
             '<td>' + (x.qcPenalty === 0 ? '0' : '<strong style="color:#c62828">' + x.qcPenalty + '</strong>') +
             (x.qcTotal > 0 ? '<span class="cell-sub"> (扣' + qcNum(x.qcTotal) + ')</span>' : '') + '</td>' +
@@ -11719,10 +11719,10 @@ function renderPerfDetail(x, R) {
     html += '</div>';
     // 其他三项
     html += '<div class="pd-section"><div class="pd-head">其他指标</div><table class="pd-table"><tbody>';
-    html += '<tr><td>平均响应</td><td>' + (x.resp === null ? '—' : fmtNum(x.resp, 1) + ' s') + '</td>' +
+    html += '<tr><td>平均响应</td><td>' + (x.resp === null ? '—' : fmtNum(x.resp, 2) + ' s') + '</td>' +
         '<td>系数 ' + (x.respCoef === null ? '—' : x.respCoef.toFixed(2)) + '</td>' +
         '<td>得分 <strong>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 2)) + '</strong> / ' + R.respWeight + '</td></tr>';
-    html += '<tr><td>转化率</td><td>' + pctTxt(x.conv) + '</td>' +
+    html += '<tr><td>转化率</td><td>' + pctTxt(x.conv, 2) + '</td>' +
         '<td>系数 ' + (x.convCoef === null ? '—' : x.convCoef) + '</td>' +
         '<td>得分 <strong>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 2)) + '</strong> / ' + R.convWeight + '</td></tr>';
     html += '<tr><td>点名好评</td><td>' + (x.praiseVal === null ? '无明细（基准系数）' : (x.praiseVal + ' 条')) + '</td>' +
@@ -11919,8 +11919,9 @@ function boardTrend() {
     function fmt(v) {
         if (v === null || v === undefined) return '<span class="flat">—</span>';
         if (metric === 'sales') return '¥' + fmtNum(v, 0);
-        if (metric === 'convRate' || metric === 'satisfaction') return fmtNum(v * 100, 1) + '%';
-        if (metric === 'respSec') return fmtNum(v, 1) + 's';
+        if (metric === 'convRate') return fmtNum(v * 100, 2) + '%';
+        if (metric === 'satisfaction') return fmtNum(v * 100, 1) + '%';
+        if (metric === 'respSec') return fmtNum(v, 2) + 's';
         return fmtNum(v, 0);
     }
     var last = months[months.length - 1], prev = months[months.length - 2];
@@ -12008,7 +12009,7 @@ function boardExportCSV() {
     (BOARD_DATA.service || []).forEach(function (r) {
         rows.push([r.platform, r.nick, r.real, r.receptions, r.inquiries, r.orders, r.sales,
             r.satisfaction === null ? '' : (r.satisfaction * 100).toFixed(2),
-            r.reviews, r.respSec === null ? '' : r.respSec,
+            r.reviews, r.respSec === null ? '' : Number(r.respSec).toFixed(2),
             r.convRate === null ? '' : (r.convRate * 100).toFixed(2)]);
     });
     var csv = '\ufeff' + rows.map(function (r) {
