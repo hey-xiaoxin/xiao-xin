@@ -11657,9 +11657,9 @@ function boardPerf() {
         var main = '<tr class="perf-main" data-idx="' + i + '"><td class="txt"><span class="perf-toggle" data-target="' + expId + '">▶</span></td>' +
             '<td class="txt">' + rankBadge(i + 1) + '</td>' + nameCell(x.real, x.nick) +
             '<td>' + (x.satScore === null ? '—' : fmtNum(x.satScore, 2)) + '</td>' +
-            '<td>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 1)) + '<span class="cell-sub"> (' + (x.resp === null ? '—' : fmtNum(x.resp, 2) + 's') + ')</span></td>' +
-            '<td>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 1)) + '<span class="cell-sub"> (' + pctTxt(x.conv, 2) + ')</span></td>' +
-            '<td>' + fmtNum(x.praiseScore, 1) + '</td><td>' + fmtNum(x.costScore, 1) + '</td>' +
+            '<td>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 2)) + '<span class="cell-sub"> (' + (x.resp === null ? '—' : fmtNum(x.resp, 2) + 's') + ')</span></td>' +
+            '<td>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 2)) + '<span class="cell-sub"> (' + pctTxt(x.conv, 2) + ')</span></td>' +
+            '<td>' + fmtNum(x.praiseScore, 2) + '</td><td>' + fmtNum(x.costScore, 2) + '</td>' +
             '<td>' + (x.qcPenalty === 0 ? '0' : '<strong style="color:#c62828">' + x.qcPenalty + '</strong>') +
             (x.qcTotal > 0 ? '<span class="cell-sub"> (扣' + qcNum(x.qcTotal) + ')</span>' : '') + '</td>' +
             '<td><strong style="color:var(--primary-dark)">' + (x.total === null ? '—' : fmtNum(x.total, 2)) + '</strong></td></tr>';
