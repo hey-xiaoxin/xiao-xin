@@ -11570,6 +11570,9 @@ function boardPerf() {
         return 0;
     }
 
+    // 满意率明细的固定展示顺序（与考核表一致）：天猫 → 抖音三店 → 京东两店 → 快手
+    var SAT_PLAT_ORDER = ['天猫旗舰店', '抖音旗舰店', '抖音梅冻店', '抖音西梅店', '京东旗舰店', '京东自营店', '快手旗舰店'];
+
     var list = Object.keys(byNick).map(function (nick) {
         var arr = byNick[nick];
         var real = arr[0].real;
@@ -11599,6 +11602,10 @@ function boardPerf() {
                 platform: r.platform, weight: w, sat: r.satisfaction,
                 coef: coef === null ? null : coef, score: sub, rank: rank, reason: reason
             });
+        });
+        satDetails.sort(function (a, b) {
+            var ia = SAT_PLAT_ORDER.indexOf(a.platform), ib = SAT_PLAT_ORDER.indexOf(b.platform);
+            return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
         });
         if (!hasSat) satScore = null;
         // 平均响应：按接待量加权
