@@ -11654,12 +11654,17 @@ function boardPerf() {
     var head = '<thead><tr><th class="txt" style="width:40px"></th><th class="txt">排名</th><th class="txt">客服</th><th>满意率(' + qcNum(R.satWeight) + ')</th><th>响应(' + qcNum(R.respWeight) + ')</th><th>转化(' + qcNum(R.convWeight) + ')</th><th>好评(' + qcNum(R.praiseWeight) + ')</th><th>售后(' + qcNum(R.costWeight) + ')</th><th>质检扣分</th><th>绩效总分</th></tr></thead>';
     var body = list.map(function (x, i) {
         var expId = 'perf-exp-' + i;
+        // 好评 / 售后在主表也带上达成值（与响应、转化一致），无当期明细时不显示副值
+        var praiseSub = (x.praiseVal === null || x.praiseVal === undefined) ? ''
+            : '<span class="cell-sub"> (' + qcNum(x.praiseVal) + ' 条)</span>';
+        var costSub = (x.costVal === null || x.costVal === undefined) ? ''
+            : '<span class="cell-sub"> (' + fmtNum(x.costVal, 2) + (x.costMode === 'target' ? '' : '%') + ')</span>';
         var main = '<tr class="perf-main" data-idx="' + i + '"><td class="txt"><span class="perf-toggle" data-target="' + expId + '">▶</span></td>' +
             '<td class="txt">' + rankBadge(i + 1) + '</td>' + nameCell(x.real, x.nick) +
             '<td>' + (x.satScore === null ? '—' : fmtNum(x.satScore, 2)) + '</td>' +
             '<td>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 2)) + '<span class="cell-sub"> (' + (x.resp === null ? '—' : fmtNum(x.resp, 2) + 's') + ')</span></td>' +
             '<td>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 2)) + '<span class="cell-sub"> (' + pctTxt(x.conv, 2) + ')</span></td>' +
-            '<td>' + fmtNum(x.praiseScore, 2) + '</td><td>' + fmtNum(x.costScore, 2) + '</td>' +
+            '<td>' + fmtNum(x.praiseScore, 2) + praiseSub + '</td><td>' + fmtNum(x.costScore, 2) + costSub + '</td>' +
             '<td>' + (x.qcPenalty === 0 ? '0' : '<strong style="color:#c62828">' + x.qcPenalty + '</strong>') +
             (x.qcTotal > 0 ? '<span class="cell-sub"> (扣' + qcNum(x.qcTotal) + ')</span>' : '') + '</td>' +
             '<td><strong style="color:var(--primary-dark)">' + (x.total === null ? '—' : fmtNum(x.total, 2)) + '</strong></td></tr>';
