@@ -11658,7 +11658,7 @@ function boardPerf() {
     });
     list.sort(function (a, b) { return (b.total === null ? -1 : b.total) - (a.total === null ? -1 : a.total); });
     var maxT = Math.max.apply(null, list.map(function (x) { return x.total || 0; }).concat([1]));
-    var head = '<thead><tr><th class="txt" style="width:40px"></th><th class="txt">排名</th><th class="txt">客服</th><th>满意率(' + qcNum(R.satWeight) + ')</th><th>响应(' + qcNum(R.respWeight) + ')</th><th>转化(' + qcNum(R.convWeight) + ')</th><th>好评(' + qcNum(R.praiseWeight) + ')</th><th>售后(' + qcNum(R.costWeight) + ')</th><th>质检扣分</th><th>绩效总分</th></tr></thead>';
+    var head = '<thead><tr><th class="txt" style="width:40px"></th><th class="txt">排名</th><th class="txt">客服</th><th>满意率(' + qcNum(R.satWeight) + ')</th><th>好评(' + qcNum(R.praiseWeight) + ')</th><th>响应(' + qcNum(R.respWeight) + ')</th><th>转化(' + qcNum(R.convWeight) + ')</th><th>售后(' + qcNum(R.costWeight) + ')</th><th>质检扣分</th><th>绩效总分</th></tr></thead>';
     var body = list.map(function (x, i) {
         var expId = 'perf-exp-' + i;
         // 好评 / 售后在主表也带上达成值（与响应、转化一致），无当期明细时不显示副值
@@ -11669,9 +11669,10 @@ function boardPerf() {
         var main = '<tr class="perf-main" data-idx="' + i + '"><td class="txt"><span class="perf-toggle" data-target="' + expId + '">▶</span></td>' +
             '<td class="txt">' + rankBadge(i + 1) + '</td>' + nameCell(x.real, x.nick) +
             '<td>' + (x.satScore === null ? '—' : fmtNum(x.satScore, 2)) + '</td>' +
+            '<td>' + fmtNum(x.praiseScore, 2) + praiseSub + '</td>' +
             '<td>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 2)) + '<span class="cell-sub"> (' + (x.resp === null ? '—' : fmtNum(x.resp, 2) + 's') + ')</span></td>' +
             '<td>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 2)) + '<span class="cell-sub"> (' + pctTxt(x.conv, 2) + ')</span></td>' +
-            '<td>' + fmtNum(x.praiseScore, 2) + praiseSub + '</td><td>' + fmtNum(x.costScore, 2) + costSub + '</td>' +
+            '<td>' + fmtNum(x.costScore, 2) + costSub + '</td>' +
             '<td>' + (x.qcPenalty === 0 ? '0' : '<strong style="color:#c62828">' + x.qcPenalty + '</strong>') +
             (x.qcTotal > 0 ? '<span class="cell-sub"> (扣' + qcNum(x.qcTotal) + ')</span>' : '') + '</td>' +
             '<td><strong style="color:var(--primary-dark)">' + (x.total === null ? '—' : fmtNum(x.total, 2)) + '</strong></td></tr>';
@@ -11729,17 +11730,17 @@ function renderPerfDetail(x, R) {
         html += '<div class="pd-sum">合计 <strong>' + fmtNum(x.satScore, 2) + '</strong> / ' + R.satWeight + '</div>';
     }
     html += '</div>';
-    // 其他三项
+    // 其他指标：好评 → 响应 → 转化 → 售后 → 质检（与主表列序一致）
     html += '<div class="pd-section"><div class="pd-head">其他指标</div><table class="pd-table"><tbody>';
+    html += '<tr><td>点名好评</td><td>' + (x.praiseVal === null ? '无明细（基准系数）' : (x.praiseVal + ' 条')) + '</td>' +
+        '<td>系数 ' + fmtNum(x.praiseCoef, 2) + '</td>' +
+        '<td>得分 <strong>' + fmtNum(x.praiseScore, 2) + '</strong> / ' + R.praiseWeight + '</td></tr>';
     html += '<tr><td>平均响应</td><td>' + (x.resp === null ? '—' : fmtNum(x.resp, 2) + ' s') + '</td>' +
         '<td>系数 ' + (x.respCoef === null ? '—' : x.respCoef.toFixed(2)) + '</td>' +
         '<td>得分 <strong>' + (x.respScore === null ? '—' : fmtNum(x.respScore, 2)) + '</strong> / ' + R.respWeight + '</td></tr>';
     html += '<tr><td>转化率</td><td>' + pctTxt(x.conv, 2) + '</td>' +
         '<td>系数 ' + (x.convCoef === null ? '—' : x.convCoef) + '</td>' +
         '<td>得分 <strong>' + (x.convScore === null ? '—' : fmtNum(x.convScore, 2)) + '</strong> / ' + R.convWeight + '</td></tr>';
-    html += '<tr><td>点名好评</td><td>' + (x.praiseVal === null ? '无明细（基准系数）' : (x.praiseVal + ' 条')) + '</td>' +
-        '<td>系数 ' + fmtNum(x.praiseCoef, 2) + '</td>' +
-        '<td>得分 <strong>' + fmtNum(x.praiseScore, 2) + '</strong> / ' + R.praiseWeight + '</td></tr>';
     var costTxt = (x.costVal === null) ? '无明细（基准系数）'
         : (x.costMode === 'target' ? (fmtNum(x.costVal, 2) + '（目标 ' + x.costTarget + '）') : (fmtNum(x.costVal, 2) + '%（成本控制率）'));
     html += '<tr><td>售后成本</td><td>' + costTxt + '</td>' +
