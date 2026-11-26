@@ -2207,6 +2207,17 @@ tr.perf-detail > td {
 .pd-table tr:last-child td { border-bottom: none; }
 .pd-table tr:hover td { background: rgba(20, 232, 194, .05); }
 .pd-reason { color: var(--muted) !important; font-weight: 500; }
+/* 长文本列（质检内容 / 问题描述 / 满意率依据）：允许换行。
+   表格默认 nowrap 保持短列整齐，但长文本会把表格连同外层主表一起撑宽，
+   展开详情后整页出现横滚、最右的质检/总分列被顶出屏幕。!important 压过
+   两条平局规则（2732 与遗留块 2986 的 nowrap）。min-width 防止列被挤成一丝。 */
+.pd-table td.pd-wrap, .pd-table th.pd-wrap {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.6;
+    min-width: 200px;
+}
 .pd-sum {
     padding: 10px 14px;
     text-align: right;
@@ -2741,6 +2752,17 @@ tr.perf-detail > td {
 .pd-table tr:last-child td { border-bottom: none; }
 .pd-table tr:hover td { background: rgba(20, 232, 194, .05); }
 .pd-reason { color: var(--muted) !important; font-weight: 500; }
+/* 长文本列（质检内容 / 问题描述 / 满意率依据）：允许换行。
+   表格默认 nowrap 保持短列整齐，但长文本会把表格连同外层主表一起撑宽，
+   展开详情后整页出现横滚、最右的质检/总分列被顶出屏幕。!important 压过
+   两条平局规则（2732 与遗留块 2986 的 nowrap）。min-width 防止列被挤成一丝。 */
+.pd-table td.pd-wrap, .pd-table th.pd-wrap {
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    line-height: 1.6;
+    min-width: 200px;
+}
 .pd-sum {
     padding: 10px 14px;
     text-align: right;
@@ -11724,7 +11746,7 @@ function renderPerfDetail(x, R) {
                 '<td>' + (d.coef === null ? '—' : d.coef) + '</td>' +
                 '<td><strong>' + (d.score === null ? '—' : fmtNum(d.score, 2)) + '</strong></td>' +
                 '<td>第 ' + (d.rank || '—') + ' 名</td>' +
-                '<td class="pd-reason">' + escAttr(d.reason) + '</td></tr>';
+                '<td class="pd-reason pd-wrap">' + escAttr(d.reason) + '</td></tr>';
         });
         html += '</tbody></table>';
         html += '<div class="pd-sum">合计 <strong>' + fmtNum(x.satScore, 2) + '</strong> / ' + R.satWeight + '</div>';
@@ -11758,11 +11780,11 @@ function renderPerfDetail(x, R) {
     if (!x.qcRows || !x.qcRows.length) {
         html += '<div class="pd-empty">本期无质检记录，按 0 分计（绩效不扣分）</div>';
     } else {
-        html += '<table class="pd-table"><thead><tr><th>日期</th><th>项目</th><th>内容</th><th>扣分</th><th class="pd-reason">问题描述</th></tr></thead><tbody>';
+        html += '<table class="pd-table"><thead><tr><th>日期</th><th>项目</th><th>内容</th><th>扣分</th><th class="pd-reason pd-wrap">问题描述</th></tr></thead><tbody>';
         x.qcRows.forEach(function (r) {
-            html += '<tr><td>' + qcEsc(r.date) + '</td><td>' + qcEsc(r.item) + '</td><td>' + qcEsc(r.content) + '</td>' +
+            html += '<tr><td>' + qcEsc(r.date) + '</td><td>' + qcEsc(r.item) + '</td><td class="pd-wrap">' + qcEsc(r.content) + '</td>' +
                 '<td><strong style="color:#c62828">' + qcNum(r.deduct) + '</strong></td>' +
-                '<td class="pd-reason">' + qcEsc(r.detail) + '</td></tr>';
+                '<td class="pd-reason pd-wrap">' + qcEsc(r.detail) + '</td></tr>';
         });
         html += '</tbody></table>';
         html += '<div class="pd-sum">合计扣 <strong>' + qcNum(x.qcTotal) + '</strong> 分 → 绩效 <strong style="color:#c62828">' + x.qcPenalty + '</strong> 分　　档位：' + qcLadderDesc() + '</div>';
